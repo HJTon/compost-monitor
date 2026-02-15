@@ -57,7 +57,12 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
     });
 
     if (!res.ok) {
-      console.error('Sheet write failed:', await res.text());
+      const errorText = await res.text();
+      console.error('Sheet write failed:', res.status, errorText);
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error('Error details:', errorJson.details || errorJson.error);
+      } catch { /* not JSON */ }
       return false;
     }
 

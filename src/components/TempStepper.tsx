@@ -9,18 +9,23 @@ interface TempStepperProps {
 
 export function TempStepper({ probes, onChange }: TempStepperProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [userInteracted, setUserInteracted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const enteredCount = probes.filter(p => p.value !== null).length;
   const validValues = probes.filter(p => p.value !== null).map(p => p.value as number);
   const runningAvg = validValues.length > 0 ? Math.round(validValues.reduce((a, b) => a + b, 0) / validValues.length) : null;
 
+  // Only auto-focus after the user has started interacting (not on mount)
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [currentIndex]);
+    if (userInteracted) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [currentIndex, userInteracted]);
 
   const handleValueChange = (value: string) => {
+    setUserInteracted(true);
     const numValue = value === '' ? null : parseFloat(value);
     const updated = probes.map((p, i) =>
       i === currentIndex ? { ...p, value: numValue } : p
@@ -29,12 +34,14 @@ export function TempStepper({ probes, onChange }: TempStepperProps) {
   };
 
   const handleNext = () => {
+    setUserInteracted(true);
     if (currentIndex < probes.length - 1) {
       setCurrentIndex(currentIndex + 1);
     }
   };
 
   const handlePrev = () => {
+    setUserInteracted(true);
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
     }
@@ -63,7 +70,7 @@ export function TempStepper({ probes, onChange }: TempStepperProps) {
         {probes.map((p, i) => (
           <button
             key={i}
-            onClick={() => setCurrentIndex(i)}
+            onClick={() => { setUserInteracted(true); setCurrentIndex(i); }}
             className={`w-3 h-3 rounded-full transition-all ${
               i === currentIndex
                 ? 'bg-green-primary scale-125'
