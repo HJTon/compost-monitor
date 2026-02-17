@@ -15,7 +15,7 @@ Mobile-first PWA for daily compost temperature monitoring at the Green Loop farm
 - **Charts:** Recharts (SVG-based, works offline)
 - **Weather:** Open-Meteo API (free, no key needed, proxied via Netlify function)
 
-**Target spreadsheet:** `1GN4dmRsx9bdw_tpu2Yl-7aGX9VsjNKCyhUfp7Ffsymc`
+**Target spreadsheet:** `1dY7TxghJegPDWUZF51QRmLhWUXVFBcdK5BYzOLsbNAo`
 **Farm location:** Taranaki ~-39.06, 174.08 (configurable in Settings)
 **Repo:** https://github.com/HJTon/compost-monitor
 **Deployed:** compost-monitor.netlify.app
@@ -45,7 +45,7 @@ Mobile-first PWA for daily compost temperature monitoring at the Green Loop farm
 | Variable | Value |
 |----------|-------|
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | Same JSON key as collector app |
-| `COMPOST_SPREADSHEET_ID` | `1GN4dmRsx9bdw_tpu2Yl-7aGX9VsjNKCyhUfp7Ffsymc` |
+| `COMPOST_SPREADSHEET_ID` | `1dY7TxghJegPDWUZF51QRmLhWUXVFBcdK5BYzOLsbNAo` |
 | `GOOGLE_DRIVE_FOLDER_ID` | Compost Media folder ID |
 
 ## Offline Strategy
@@ -67,7 +67,10 @@ The app maps system IDs to sheet tab names:
 | `pivot-2` | Pivot #2 |
 | `pivot-3` | Pivot #3 |
 | `pivot-4` | Pivot #4 |
+| `carbon-cube-2` | Carbon Cube Cycle 2 |
 | `cylinder-1` | Cylinder #1 |
+| `cylinder-2` | Cylinder #2 |
+| `cylinder-3` | Cylinder #3 |
 | `batch-1` | Batch 1 |
 | `batch-2` | Batch 2 |
 | `batch-3` | Batch 3 |

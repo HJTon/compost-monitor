@@ -18,7 +18,10 @@ export const COMPOST_SYSTEMS: CompostSystem[] = [
   { id: 'pivot-2', name: 'Pivot #2', shortName: 'P2', sheetTab: 'Pivot #2', active: true, probeLabels: STANDARD_PROBES },
   { id: 'pivot-3', name: 'Pivot #3', shortName: 'P3', sheetTab: 'Pivot #3', active: true, probeLabels: STANDARD_PROBES },
   { id: 'pivot-4', name: 'Pivot #4', shortName: 'P4', sheetTab: 'Pivot #4', active: true, probeLabels: STANDARD_PROBES },
+  { id: 'carbon-cube-2', name: 'Carbon Cube Cycle 2', shortName: 'CC2', sheetTab: 'Carbon Cube Cycle 2', active: true, probeLabels: STANDARD_PROBES },
   { id: 'cylinder-1', name: 'Cylinder #1', shortName: 'C1', sheetTab: 'Cylinder #1', active: true, probeLabels: STANDARD_PROBES },
+  { id: 'cylinder-2', name: 'Cylinder #2', shortName: 'C2', sheetTab: 'Cylinder #2', active: true, probeLabels: STANDARD_PROBES },
+  { id: 'cylinder-3', name: 'Cylinder #3', shortName: 'C3', sheetTab: 'Cylinder #3', active: true, probeLabels: STANDARD_PROBES },
   { id: 'batch-1', name: 'Batch 1', shortName: 'B1', sheetTab: 'Batch 1', active: true, probeLabels: STANDARD_PROBES },
   { id: 'batch-2', name: 'Batch 2', shortName: 'B2', sheetTab: 'Batch 2', active: true, probeLabels: STANDARD_PROBES },
   { id: 'batch-3', name: 'Batch 3', shortName: 'B3', sheetTab: 'Batch 3', active: true, probeLabels: STANDARD_PROBES },
@@ -44,7 +47,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 // Spreadsheet ID
-export const SPREADSHEET_ID = '1GN4dmRsx9bdw_tpu2Yl-7aGX9VsjNKCyhUfp7Ffsymc';
+export const SPREADSHEET_ID = '1dY7TxghJegPDWUZF51QRmLhWUXVFBcdK5BYzOLsbNAo';
 
 // Weather code mapping (WMO standard)
 export const WMO_CODE_MAP: Record<number, string> = {
