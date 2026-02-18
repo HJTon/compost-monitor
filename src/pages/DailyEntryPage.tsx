@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Camera, Video, Grid3x3, List, Save, ChevronRight, Info } from 'lucide-react';
+import { Camera, Video, Grid3x3, List, Save, TrendingUp, Info, CheckCircle, PlusCircle, RefreshCw } from 'lucide-react';
+
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { TempStepper } from '@/components/TempStepper';
@@ -29,6 +30,8 @@ export function DailyEntryPage() {
 
   const system = systemId ? getSystemById(systemId) : undefined;
   const [entry, setEntry] = useState<DailyEntry | null>(null);
+  const [todayExisting, setTodayExisting] = useState<DailyEntry | null>(null);
+  const [showChoice, setShowChoice] = useState(false);
   const [isStepper, setIsStepper] = useState(settings.entryMode === 'stepper');
   const [saving, setSaving] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
@@ -42,16 +45,8 @@ export function DailyEntryPage() {
       const today = getNZDate();
       const existing = await getEntryForSystemDate(systemId!, today);
       if (existing) {
-        // Re-map probe labels from current config in case they changed
-        const sys = getSystemById(systemId!);
-        const currentLabels = sys?.probeLabels || [];
-        setEntry({
-          ...existing,
-          probes: existing.probes.map((p, i) => ({
-            ...p,
-            label: currentLabels[i] ?? p.label,
-          })),
-        });
+        setTodayExisting(existing);
+        setShowChoice(true);
       } else {
         setEntry(createBlankEntry(systemId!));
       }
@@ -126,11 +121,78 @@ export function DailyEntryPage() {
     await queueMediaSync(entry?.id || '', item.id);
   };
 
+  const handleReplaceReading = () => {
+    if (!todayExisting || !systemId) return;
+    const sys = getSystemById(systemId);
+    const currentLabels = sys?.probeLabels || [];
+    setEntry({
+      ...todayExisting,
+      probes: todayExisting.probes.map((p, i) => ({
+        ...p,
+        label: currentLabels[i] ?? p.label,
+      })),
+    });
+    setShowChoice(false);
+  };
+
+  const handleAddReading = () => {
+    setEntry(createBlankEntry(systemId!));
+    setShowChoice(false);
+  };
+
   if (!system) {
     return (
       <div className="min-h-screen bg-green-50/50">
         <Header title="Not Found" showBack />
         <div className="p-4 text-center text-gray-500">System not found</div>
+      </div>
+    );
+  }
+
+  if (showChoice && todayExisting) {
+    return (
+      <div className="min-h-screen bg-green-50/50">
+        <Header title={system.name} showBack />
+        <div className="p-4 space-y-4">
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 text-center">
+            <CheckCircle size={44} className="text-green-500 mx-auto mb-3" />
+            <h3 className="font-semibold text-gray-900 text-lg mb-1">Already measured today</h3>
+            {todayExisting.time && (
+              <p className="text-sm text-gray-400 mb-2">{todayExisting.time}</p>
+            )}
+            {todayExisting.averageTemp !== null && (
+              <p className="text-sm text-gray-500">
+                Avg {todayExisting.averageTemp}°F · Peak {todayExisting.peakTemp}°F
+              </p>
+            )}
+          </div>
+
+          <button
+            onClick={handleReplaceReading}
+            className="w-full bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 active:scale-[0.98] transition-transform text-left"
+          >
+            <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+              <RefreshCw size={20} className="text-amber-500" />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-900">Update today's reading</div>
+              <div className="text-sm text-gray-500">Edit and replace the existing measurement</div>
+            </div>
+          </button>
+
+          <button
+            onClick={handleAddReading}
+            className="w-full bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 active:scale-[0.98] transition-transform text-left"
+          >
+            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+              <PlusCircle size={20} className="text-green-600" />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-900">Log a second reading</div>
+              <div className="text-sm text-gray-500">Record another measurement for today</div>
+            </div>
+          </button>
+        </div>
       </div>
     );
   }
@@ -405,13 +467,16 @@ export function DailyEntryPage() {
           )}
         </div>
 
-        {/* View charts link */}
+        {/* View analysis link */}
         <button
-          onClick={() => navigate(`/system/${systemId}`)}
+          onClick={() => navigate(`/analyse/${systemId}`)}
           className="w-full bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between text-gray-700 active:scale-[0.98] transition-transform"
         >
-          <span className="font-medium">View Temperature Charts</span>
-          <ChevronRight size={20} />
+          <div className="flex items-center gap-3">
+            <TrendingUp size={18} className="text-green-600" />
+            <span className="font-medium">View Analysis</span>
+          </div>
+          <div className="text-xs text-gray-400">Let's Analyse →</div>
         </button>
       </div>
 

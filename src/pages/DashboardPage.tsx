@@ -4,7 +4,7 @@ import { Thermometer, CheckCircle, Clock, BarChart3 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { useCompost } from '@/contexts/CompostContext';
-import { COMPOST_SYSTEMS, getNZDate, KILL_TEMP_F, KILL_DAYS_REQUIRED } from '@/utils/config';
+import { COMPOST_SYSTEMS, getNZDate } from '@/utils/config';
 import type { DailyEntry } from '@/types';
 
 interface SystemCardData {
@@ -13,8 +13,6 @@ interface SystemCardData {
   shortName: string;
   lastEntry: DailyEntry | null;
   hasToday: boolean;
-  killDays: number;
-  killComplete: boolean;
 }
 
 export function DashboardPage() {
@@ -34,24 +32,12 @@ export function DashboardPage() {
       const lastEntry = systemEntries[0] || null;
       const hasToday = systemEntries.some(e => e.date === today);
 
-      // Calculate kill cycle: count consecutive days where peak >= KILL_TEMP_F
-      let killDays = 0;
-      for (const entry of systemEntries) {
-        if (entry.peakTemp !== null && entry.peakTemp >= KILL_TEMP_F) {
-          killDays++;
-        } else {
-          break;
-        }
-      }
-
       return {
         systemId: sys.id,
         name: sys.name,
         shortName: sys.shortName,
         lastEntry,
         hasToday,
-        killDays,
-        killComplete: killDays >= KILL_DAYS_REQUIRED,
       };
     });
 
@@ -110,28 +96,16 @@ export function DashboardPage() {
                 </div>
 
                 {card.hasToday ? (
-                  <div className="flex items-center gap-1 text-green-600">
+                  <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
                     <CheckCircle size={20} />
+                    <span>Done</span>
                   </div>
                 ) : (
-                  <div className="w-3 h-3 rounded-full bg-gray-300" />
+                  <div className="flex items-center gap-1.5 text-gray-400 text-sm">
+                    <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
+                    <span>Not yet</span>
+                  </div>
                 )}
-              </div>
-
-              {/* Kill cycle progress */}
-              <div className="mt-2">
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                  <span>Kill cycle</span>
-                  <span>{card.killDays} / {KILL_DAYS_REQUIRED} days</span>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      card.killComplete ? 'bg-green-500' : card.killDays > 0 ? 'bg-amber-400' : 'bg-gray-200'
-                    }`}
-                    style={{ width: `${Math.min(100, (card.killDays / KILL_DAYS_REQUIRED) * 100)}%` }}
-                  />
-                </div>
               </div>
             </button>
           ))}
