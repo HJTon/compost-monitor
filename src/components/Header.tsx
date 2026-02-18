@@ -4,9 +4,10 @@ import { ArrowLeft, Settings } from 'lucide-react';
 interface HeaderProps {
   title: string;
   showBack?: boolean;
+  onBack?: () => void;
 }
 
-export function Header({ title, showBack = false }: HeaderProps) {
+export function Header({ title, showBack = false, onBack }: HeaderProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -17,7 +18,7 @@ export function Header({ title, showBack = false }: HeaderProps) {
       <div className="flex items-center gap-3">
         {showBack && !isDashboard && (
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => onBack ? onBack() : navigate(-1)}
             className="p-1 -ml-1 hover:bg-green-dark rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
