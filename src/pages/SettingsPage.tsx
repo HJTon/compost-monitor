@@ -6,7 +6,7 @@ import { useCompost } from '@/contexts/CompostContext';
 import { COMPOST_SYSTEMS } from '@/utils/config';
 
 export function SettingsPage() {
-  const { settings, updateSettings, syncNow, isSyncing, pendingCount, addToast } = useCompost();
+  const { settings, updateSettings, syncNow, discardPending, isSyncing, pendingCount, addToast } = useCompost();
   const [lat, setLat] = useState(settings.farmLatitude.toString());
   const [lon, setLon] = useState(settings.farmLongitude.toString());
 
@@ -51,17 +51,32 @@ export function SettingsPage() {
               <span className="text-sm text-gray-500">{new Date(settings.lastSyncTime).toLocaleString()}</span>
             </div>
           )}
-          <Button
-            fullWidth
-            variant="outline"
-            onClick={syncNow}
-            disabled={isSyncing || pendingCount === 0}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
-              {isSyncing ? 'Syncing...' : 'Sync Now'}
-            </div>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              fullWidth
+              variant="outline"
+              onClick={syncNow}
+              disabled={isSyncing || pendingCount === 0}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
+                {isSyncing ? 'Syncing...' : 'Sync Now'}
+              </div>
+            </Button>
+            {pendingCount > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (window.confirm(`Discard ${pendingCount} unsynced item${pendingCount === 1 ? '' : 's'}? They will stay saved locally but won't be sent to the spreadsheet.`)) {
+                    discardPending();
+                  }
+                }}
+                disabled={isSyncing}
+              >
+                Discard
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Entry mode */}

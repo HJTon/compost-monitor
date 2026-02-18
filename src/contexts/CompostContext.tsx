@@ -9,6 +9,7 @@ import {
   saveEntry as dbSaveEntry,
   getSettings,
   saveSettings as dbSaveSettings,
+  clearSyncQueue,
 } from '@/services/db';
 import { processSyncQueue, getPendingCount, queueEntrySync } from '@/services/syncService';
 import { DEFAULT_SETTINGS, generateId, getNZDate, getNZTime, COMPOST_SYSTEMS } from '@/utils/config';
@@ -30,6 +31,7 @@ interface CompostContextType {
 
   // Sync
   syncNow: () => Promise<void>;
+  discardPending: () => Promise<void>;
 
   // Settings
   updateSettings: (settings: Partial<AppSettings>) => Promise<void>;
@@ -152,6 +154,12 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     }
   }, [isSyncing, addToast, refreshEntries]);
 
+  const discardPending = useCallback(async () => {
+    await clearSyncQueue();
+    setPendingCount(0);
+    addToast('success', 'Pending items cleared');
+  }, [addToast]);
+
   const getEntryForSystemDate = useCallback(async (systemId: string, date: string) => {
     return getEntryBySystemDate(systemId, date);
   }, []);
@@ -220,6 +228,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         getDateEntries,
         createBlankEntry,
         syncNow,
+        discardPending,
         updateSettings,
         addToast,
         dismissToast,
