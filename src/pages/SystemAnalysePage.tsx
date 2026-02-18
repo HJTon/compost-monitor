@@ -20,6 +20,11 @@ interface ChartPoint {
   peak: number | null;
 }
 
+interface CompositionItem {
+  source: string;
+  percentage: number;
+}
+
 export function SystemAnalysePage() {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
@@ -30,6 +35,9 @@ export function SystemAnalysePage() {
   const [currentStreak, setCurrentStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
+  const [composition, setComposition] = useState<CompositionItem[]>([]);
+  const [binCount, setBinCount] = useState(0);
+  const [compLoading, setCompLoading] = useState(true);
 
   useEffect(() => {
     if (!system?.sheetTab) return;
@@ -77,6 +85,21 @@ export function SystemAnalysePage() {
       .finally(() => setLoading(false));
   }, [system?.sheetTab]);
 
+  useEffect(() => {
+    if (!system?.sheetTab) return;
+    setCompLoading(true);
+    fetch(`/.netlify/functions/compost-bin-composition?system=${encodeURIComponent(system.sheetTab.trim())}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => {
+        if (data.composition) {
+          setComposition(data.composition);
+          setBinCount(data.binCount ?? 0);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCompLoading(false));
+  }, [system?.sheetTab]);
+
   if (!system) {
     return (
       <div className="min-h-screen bg-green-50/50">
@@ -93,6 +116,38 @@ export function SystemAnalysePage() {
       <Header title={system.name} showBack onBack={() => navigate('/analyse')} />
 
       <div className="p-4 space-y-4">
+
+        {/* Composition */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-gray-900 mb-3">Composition</h3>
+          {compLoading ? (
+            <div className="flex justify-center py-4">
+              <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : composition.length > 0 ? (
+            <div className="space-y-2">
+              {composition.map(({ source, percentage }) => (
+                <div key={source}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-700">{source}</span>
+                    <span className="font-medium text-gray-900">{percentage}%</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div
+                      className="bg-green-500 h-2 rounded-full"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-gray-400 mt-3">
+                Estimated from {binCount} bin{binCount !== 1 ? 's' : ''} · weighted by fill position
+              </p>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-gray-400 text-sm">No bin data found</div>
+          )}
+        </div>
 
         {/* Kill cycle summary */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
