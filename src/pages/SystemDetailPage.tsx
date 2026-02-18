@@ -1,18 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Plus } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
-import { getSystemById, KILL_TEMP_F, getTempColor } from '@/utils/config';
+import { getSystemById, KILL_TEMP_F, KILL_DAYS_REQUIRED, getTempColor } from '@/utils/config';
 import type { DailyEntry } from '@/types';
-
-interface SheetChartPoint {
-  date: string;
-  avg: number | null;
-  peak: number | null;
-}
 
 export function SystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>();
@@ -20,8 +13,6 @@ export function SystemDetailPage() {
   const { getSystemEntries } = useCompost();
   const system = systemId ? getSystemById(systemId) : undefined;
   const [entries, setEntries] = useState<DailyEntry[]>([]);
-  const [sheetChartData, setSheetChartData] = useState<SheetChartPoint[] | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     if (!systemId) return;
@@ -29,24 +20,6 @@ export function SystemDetailPage() {
       setEntries(data.sort((a, b) => a.date.localeCompare(b.date)));
     });
   }, [systemId, getSystemEntries]);
-
-  useEffect(() => {
-    if (!system?.sheetTab) return;
-    setHistoryLoading(true);
-    fetch(`/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(data => {
-        if (data.entries?.length) {
-          setSheetChartData(data.entries.map((e: { date: string; average: number | null; peak: number | null }) => ({
-            date: e.date.length >= 7 ? e.date.slice(5) : e.date,
-            avg: e.average,
-            peak: e.peak,
-          })));
-        }
-      })
-      .catch(() => { /* fall back to local data silently */ })
-      .finally(() => setHistoryLoading(false));
-  }, [system?.sheetTab]);
 
   if (!system) {
     return (
@@ -57,17 +30,7 @@ export function SystemDetailPage() {
     );
   }
 
-  const localChartData = entries.map(e => ({
-    date: e.date.slice(5), // MM-DD
-    avg: e.averageTemp,
-    peak: e.peakTemp,
-  }));
-
-  const displayChartData = sheetChartData ?? localChartData;
-  const chartSource = sheetChartData ? 'spreadsheet' : 'local';
-  const xAxisInterval = Math.max(0, Math.floor(displayChartData.length / 8) - 1);
-
-  // Calculate kill cycle streaks
+  // Calculate kill cycle streaks from local entries
   let currentStreak = 0;
   let longestStreak = 0;
   const reversedEntries = [...entries].reverse();
@@ -91,7 +54,7 @@ export function SystemDetailPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="text-center">
               <div className="text-sm text-gray-500">Current Streak</div>
-              <div className={`text-3xl font-bold ${currentStreak >= 3 ? 'text-green-600' : 'text-amber-500'}`}>
+              <div className={`text-3xl font-bold ${currentStreak >= KILL_DAYS_REQUIRED ? 'text-green-600' : 'text-amber-500'}`}>
                 {currentStreak}
               </div>
               <div className="text-xs text-gray-400">consecutive days</div>
@@ -102,41 +65,6 @@ export function SystemDetailPage() {
               <div className="text-xs text-gray-400">days</div>
             </div>
           </div>
-        </div>
-
-        {/* Temperature chart */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-900">Temperature Trends</h3>
-            {!historyLoading && (
-              <span className="text-xs text-gray-400">
-                {chartSource === 'spreadsheet'
-                  ? `${displayChartData.length} days from spreadsheet`
-                  : 'Local data'}
-              </span>
-            )}
-          </div>
-          {historyLoading ? (
-            <div className="h-[250px] flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : displayChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={displayChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={xAxisInterval} />
-                <YAxis tick={{ fontSize: 11 }} domain={[0, 'auto']} />
-                <Tooltip />
-                <ReferenceLine y={KILL_TEMP_F} stroke="#EF4444" strokeDasharray="5 5" label={{ value: `${KILL_TEMP_F}°F Kill`, fill: '#EF4444', fontSize: 11 }} />
-                <Line type="monotone" dataKey="avg" stroke="#2D8B4E" strokeWidth={2} name="Average" dot={{ r: displayChartData.length > 60 ? 0 : 3 }} />
-                <Line type="monotone" dataKey="peak" stroke="#F59E0B" strokeWidth={2} name="Peak" dot={{ r: displayChartData.length > 60 ? 0 : 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[250px] flex items-center justify-center text-gray-400">
-              No data yet
-            </div>
-          )}
         </div>
 
         {/* Recent entries */}
