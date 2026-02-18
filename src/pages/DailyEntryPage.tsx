@@ -7,13 +7,20 @@ import { TempStepper } from '@/components/TempStepper';
 import { TempGrid } from '@/components/TempGrid';
 import { MediaCapture } from '@/components/MediaCapture';
 import { useCompost } from '@/contexts/CompostContext';
+import { queueMediaSync } from '@/services/syncService';
 import { fetchWeather } from '@/services/weatherService';
 import { getSystemById, getNZDate, getNZTime, KILL_TEMP_F, getTempColor } from '@/utils/config';
 import type { DailyEntry, WeatherCondition, MoistureLevel, OdourLevel, ProbeReading, MediaItem } from '@/types';
 
 const WEATHER_OPTIONS: WeatherCondition[] = ['Sunny', 'Cloudy', 'Overcast', 'Rain', 'Wind', 'Frost'];
 const MOISTURE_OPTIONS: MoistureLevel[] = ['Dry', 'Good', 'Wet'];
-const ODOUR_OPTIONS: OdourLevel[] = ['None', 'Mild', 'Strong'];
+const ODOUR_OPTIONS: { value: OdourLevel; emoji: string; label: string }[] = [
+  { value: '1', emoji: '\u{1F600}', label: 'Inoffensive' },
+  { value: '2', emoji: '\u{1F610}', label: 'Slight' },
+  { value: '3', emoji: '\u{1F627}', label: 'Moderate' },
+  { value: '4', emoji: '\u{1F922}', label: 'Strong' },
+  { value: '5', emoji: '\u{1F92E}', label: 'Disgusting' },
+];
 
 export function DailyEntryPage() {
   const { systemId } = useParams<{ systemId: string }>();
@@ -26,6 +33,7 @@ export function DailyEntryPage() {
   const [saving, setSaving] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const [viewingMedia, setViewingMedia] = useState<MediaItem | null>(null);
 
   // Load or create entry
   useEffect(() => {
@@ -34,7 +42,16 @@ export function DailyEntryPage() {
       const today = getNZDate();
       const existing = await getEntryForSystemDate(systemId!, today);
       if (existing) {
-        setEntry(existing);
+        // Re-map probe labels from current config in case they changed
+        const sys = getSystemById(systemId!);
+        const currentLabels = sys?.probeLabels || [];
+        setEntry({
+          ...existing,
+          probes: existing.probes.map((p, i) => ({
+            ...p,
+            label: currentLabels[i] ?? p.label,
+          })),
+        });
       } else {
         setEntry(createBlankEntry(systemId!));
       }
@@ -94,7 +111,7 @@ export function DailyEntryPage() {
     try {
       await saveEntry({ ...entry, time: getNZTime() });
       addToast('success', `${system?.name || 'Entry'} saved`);
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       console.error('Save failed:', err);
       addToast('error', 'Failed to save entry');
@@ -103,9 +120,10 @@ export function DailyEntryPage() {
     }
   };
 
-  const handleMediaCaptured = (item: MediaItem) => {
+  const handleMediaCaptured = async (item: MediaItem) => {
     setMediaItems(prev => [...prev, item]);
     updateEntry({ mediaIds: [...(entry?.mediaIds || []), item.id] });
+    await queueMediaSync(entry?.id || '', item.id);
   };
 
   if (!system) {
@@ -243,18 +261,19 @@ export function DailyEntryPage() {
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 mb-2">Odour</h3>
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 {ODOUR_OPTIONS.map(o => (
                   <button
-                    key={o}
-                    onClick={() => updateEntry({ odour: o })}
-                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      entry.odour === o
-                        ? 'bg-green-primary text-white'
+                    key={o.value}
+                    onClick={() => updateEntry({ odour: o.value })}
+                    className={`flex-1 py-2 rounded-lg text-center transition-all ${
+                      entry.odour === o.value
+                        ? 'bg-green-primary text-white ring-2 ring-green-primary ring-offset-1'
                         : 'bg-gray-100 text-gray-700'
                     }`}
                   >
-                    {o}
+                    <div className="text-xl">{o.emoji}</div>
+                    <div className="text-[10px] leading-tight mt-0.5">{o.label}</div>
                   </button>
                 ))}
               </div>
@@ -372,11 +391,15 @@ export function DailyEntryPage() {
           {mediaItems.length > 0 && (
             <div className="mt-3 flex gap-2 overflow-x-auto hide-scrollbar">
               {mediaItems.map(item => (
-                <div key={item.id} className="w-16 h-16 rounded-lg bg-gray-200 flex-shrink-0 overflow-hidden">
+                <button
+                  key={item.id}
+                  onClick={() => setViewingMedia(item)}
+                  className="w-16 h-16 rounded-lg bg-gray-200 flex-shrink-0 overflow-hidden"
+                >
                   {item.thumbnailBase64 && (
                     <img src={item.thumbnailBase64} alt="" className="w-full h-full object-cover" />
                   )}
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -402,7 +425,7 @@ export function DailyEntryPage() {
         >
           <div className="flex items-center justify-center gap-2">
             <Save size={20} />
-            {saving ? 'Saving...' : `Save Entry (${filledProbes}/9 probes)`}
+            {saving ? 'Saving...' : `Save Entry (${filledProbes}/${entry.probes.length} probes)`}
           </div>
         </Button>
       </div>
@@ -416,6 +439,36 @@ export function DailyEntryPage() {
           onCapture={handleMediaCaptured}
           onClose={() => setShowMedia(false)}
         />
+      )}
+
+      {/* Full-screen media viewer */}
+      {viewingMedia && (
+        <div
+          className="fixed inset-0 bg-black z-50 flex items-center justify-center"
+          onClick={() => setViewingMedia(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white text-3xl font-bold z-10"
+            onClick={() => setViewingMedia(null)}
+          >
+            &times;
+          </button>
+          {viewingMedia.type === 'photo' ? (
+            <img
+              src={viewingMedia.driveUrl || viewingMedia.base64 || ''}
+              alt={viewingMedia.filename}
+              className="max-w-full max-h-full object-contain"
+            />
+          ) : (
+            <video
+              src={viewingMedia.driveUrl || (viewingMedia.blob ? URL.createObjectURL(viewingMedia.blob) : '')}
+              controls
+              autoPlay
+              className="max-w-full max-h-full"
+              onClick={e => e.stopPropagation()}
+            />
+          )}
+        </div>
       )}
     </div>
   );
