@@ -40,15 +40,15 @@ netlify dev
 
 ## Deploying
 
-**Always deploy via the Netlify CLI from this directory:**
+**Always deploy via the Netlify CLI from this directory, using the explicit site ID:**
 
 ```bash
-netlify deploy --prod
+netlify deploy --prod --site 3025dc6b-9c5f-4433-9e66-4c0582fb649f
 ```
 
 This builds the app and deploys to **https://compostmonitor.netlify.app**.
 
-> **Important:** This folder is linked to the `compostmonitor` Netlify site. Do not run `netlify link` or `netlify unlink` unless you know exactly what you're doing — it caused a cross-deployment incident previously.
+> **Important:** Always use `--site` flag as above. The CLI link state has caused cross-deployment incidents in the past (compost-monitor deploying to the Sustainable Trails site). The `--site` flag bypasses the link entirely and guarantees the right site every time. Never run `netlify deploy --prod` without it.
 
 After deploying, push to GitHub:
 ```bash
