@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { RefreshCw, MapPin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { RefreshCw, MapPin, Download, CheckCircle, Share } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
@@ -9,6 +9,26 @@ export function SettingsPage() {
   const { settings, updateSettings, syncNow, discardPending, isSyncing, pendingCount, addToast } = useCompost();
   const [lat, setLat] = useState(settings.farmLatitude.toString());
   const [lon, setLon] = useState(settings.farmLongitude.toString());
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  useEffect(() => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || (navigator as any).standalone === true;
+    setIsInstalled(standalone);
+
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') { setInstallPrompt(null); setIsInstalled(true); }
+  };
 
   const handleToggleSystem = (systemId: string) => {
     const current = settings.activeSystems;
@@ -38,6 +58,44 @@ export function SettingsPage() {
       <Header title="Settings" showBack />
 
       <div className="p-4 space-y-4">
+        {/* Install */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-gray-900 mb-3">Add to Home Screen</h3>
+          {isInstalled ? (
+            <div className="flex items-center gap-2 text-green-600 text-sm">
+              <CheckCircle size={16} />
+              <span>Already installed on this device</span>
+            </div>
+          ) : isIOS ? (
+            <div className="space-y-2">
+              <p className="text-sm text-gray-600">To install on iPhone or iPad:</p>
+              <div className="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
+                <Share size={18} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-gray-700">
+                  Tap the <strong>Share</strong> button in Safari, then tap <strong>"Add to Home Screen"</strong>
+                </p>
+              </div>
+            </div>
+          ) : installPrompt ? (
+            <Button fullWidth onClick={handleInstall}>
+              <div className="flex items-center justify-center gap-2">
+                <Download size={18} />
+                Add to Home Screen
+              </div>
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-gray-600">To install on Android or desktop:</p>
+              <div className="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
+                <Download size={18} className="text-green-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-gray-700">
+                  Tap the <strong>menu (⋮)</strong> in your browser and select <strong>"Add to Home Screen"</strong> or <strong>"Install app"</strong>
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Sync */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <h3 className="font-semibold text-gray-900 mb-3">Sync</h3>
