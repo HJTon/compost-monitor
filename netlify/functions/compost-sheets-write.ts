@@ -16,11 +16,37 @@ const SYSTEM_TAB_MAP: Record<string, string> = {
   'pivot-2': 'Pivot #2',
   'pivot-3': 'Pivot #3',
   'pivot-4': 'Pivot #4',
+  'carbon-cube-1': 'Carbon Cube Cycle 1 ',
   'cylinder-1': 'Cylinder #1',
-  'batch-1': 'Batch 1',
+  'cylinder-2': 'Cylinder #2',
+  'cylinder-3': 'Cylinder #3',
+  'batch-1': 'Batch 1 ',
   'batch-2': 'Batch 2',
   'batch-3': 'Batch 3',
 };
+
+// Number of probes per system
+const SYSTEM_PROBE_COUNT: Record<string, number> = {
+  'carbon-cube-1': 3,
+  'cylinder-1': 5,
+  'cylinder-2': 5,
+  'cylinder-3': 5,
+};
+
+function getProbeCount(systemId: string): number {
+  return SYSTEM_PROBE_COUNT[systemId] || 9;
+}
+
+// Convert 0-based column index to sheet column letter (A=0, B=1, ..., Z=25, AA=26, ...)
+function colLetter(index: number): string {
+  let letter = '';
+  let n = index;
+  while (n >= 0) {
+    letter = String.fromCharCode((n % 26) + 65) + letter;
+    n = Math.floor(n / 26) - 1;
+  }
+  return letter;
+}
 
 interface WriteRequest {
   tab: string;
@@ -35,7 +61,7 @@ interface WriteRequest {
   ventTemps: string;
   visualNotes: string;
   generalNotes: string;
-  mediaIds: string[];
+  mediaLinks: string[];  // Drive webViewLink URLs (empty if no photos)
 }
 
 export default async (request: Request, _context: Context) => {
@@ -89,7 +115,7 @@ export default async (request: Request, _context: Context) => {
       body.ventTemps || '',
       body.visualNotes || '',
       body.generalNotes || '',
-      body.mediaIds.join(', '),
+      body.mediaLinks.join('\n'),
     ];
 
     const sheets = getGoogleSheetsClient();
@@ -112,16 +138,20 @@ export default async (request: Request, _context: Context) => {
       const match = updatedRange.match(/!.*?(\d+)/);
       if (match) {
         const rowNum = match[1];
-        // Column I is probe 1 (index 8), Column Q is probe 9 (index 16)
-        // Average goes in column R (index 17), Peak in column S (index 18)
-        const avgFormula = `=IF(COUNTA(I${rowNum}:Q${rowNum})>0,AVERAGE(I${rowNum}:Q${rowNum}),"")`;
-        const peakFormula = `=IF(COUNTA(I${rowNum}:Q${rowNum})>0,MAX(I${rowNum}:Q${rowNum}),"")`;
+        const probeCount = getProbeCount(body.tab);
+        // Row layout: Date(A), Time(B), Weather(C), AmbMin(D), AmbMax(E), Moisture(F), Odour(G), Probes(H...)
+        // First probe col = H (index 7), last probe col = H + probeCount - 1
+        const firstProbeCol = colLetter(7); // H
+        const lastProbeCol = colLetter(7 + probeCount - 1);
+        const avgCol = colLetter(7 + probeCount);
+        const peakCol = colLetter(7 + probeCount + 1);
 
-        // Probe columns H through P (columns 8-16 = I-Q in 1-indexed)
-        // So average = column R, peak = column S
+        const avgFormula = `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,AVERAGE(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`;
+        const peakFormula = `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,MAX(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`;
+
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: `'${sheetTab}'!R${rowNum}:S${rowNum}`,
+          range: `'${sheetTab}'!${avgCol}${rowNum}:${peakCol}${rowNum}`,
           valueInputOption: 'USER_ENTERED',
           requestBody: {
             values: [[avgFormula, peakFormula]],

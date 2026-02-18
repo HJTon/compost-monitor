@@ -1,5 +1,5 @@
 import type { DailyEntry, SyncQueueItem } from '@/types';
-import { getEntry, saveEntry, addToSyncQueue, getPendingSyncItems, updateSyncItem, removeSyncItem } from './db';
+import { getEntry, saveEntry, getMediaItem, getMediaByEntry, saveMedia, addToSyncQueue, getPendingSyncItems, updateSyncItem, removeSyncItem } from './db';
 import { generateId } from '@/utils/config';
 
 const MAX_RETRIES = 5;
@@ -32,9 +32,66 @@ export async function queueMediaSync(entryId: string, mediaId: string): Promise<
   void entryId;
 }
 
+async function syncMediaToDrive(mediaId: string): Promise<boolean> {
+  try {
+    const media = await getMediaItem(mediaId);
+    if (!media) return false;
+
+    let mediaData: string;
+    if (media.base64) {
+      mediaData = media.base64;
+    } else if (media.blob) {
+      mediaData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(media.blob!);
+      });
+    } else {
+      console.error('No media data available for', mediaId);
+      return false;
+    }
+
+    const res = await fetch('/.netlify/functions/compost-media-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mediaData,
+        mimeType: media.mimeType,
+        filename: media.filename,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('Media upload failed:', res.status, errorText);
+      return false;
+    }
+
+    const result = await res.json();
+    await saveMedia({
+      ...media,
+      driveFileId: result.fileId,
+      driveUrl: result.webViewLink,
+      synced: true,
+    });
+
+    return true;
+  } catch (err) {
+    console.error('Media sync error:', err);
+    return false;
+  }
+}
+
 async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
   try {
     const probeValues = entry.probes.map(p => p.value);
+
+    // Collect Drive URLs for any media already uploaded for this entry
+    const mediaItems = await getMediaByEntry(entry.id);
+    const mediaLinks = mediaItems
+      .filter(m => m.synced && m.driveUrl)
+      .map(m => m.driveUrl!);
 
     const res = await fetch('/.netlify/functions/compost-sheets-write', {
       method: 'POST',
@@ -52,7 +109,7 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
         ventTemps: entry.ventTemps,
         visualNotes: entry.visualNotes,
         generalNotes: entry.generalNotes,
-        mediaIds: entry.mediaIds,
+        mediaLinks,
       }),
     });
 
@@ -74,7 +131,14 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
 }
 
 export async function processSyncQueue(): Promise<{ synced: number; failed: number }> {
-  const pending = await getPendingSyncItems();
+  const pendingRaw = await getPendingSyncItems();
+  // Process media uploads before entry sheet writes so Drive URLs are
+  // available when the entry row is written to the Sheet
+  const pending = [...pendingRaw].sort((a, b) => {
+    if (a.type === 'media' && b.type !== 'media') return -1;
+    if (a.type !== 'media' && b.type === 'media') return 1;
+    return 0;
+  });
   let synced = 0;
   let failed = 0;
 
@@ -101,8 +165,9 @@ export async function processSyncQueue(): Promise<{ synced: number; failed: numb
         await removeSyncItem(item.id);
         continue;
       }
+    } else if (item.type === 'media') {
+      success = await syncMediaToDrive(item.entryId); // entryId holds mediaId for media items
     }
-    // Media sync handled separately via mediaService
 
     if (success) {
       await removeSyncItem(item.id);
