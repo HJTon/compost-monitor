@@ -79,12 +79,26 @@ export function CompostProvider({ children }: { children: ReactNode }) {
   // Merge hardcoded + custom so fields saved via Manage (buildType, dimensions,
   // mulchBins, etc.) augment the hardcoded 11 systems. Custom entries with IDs
   // not matching any hardcoded system are appended as-is.
+  //
+  // CRITICAL: hardcoded wins on structural fields (id, name, sheetTab) so a
+  // stale/partial custom entry can't clobber the real sheet tab — notably
+  // `'Carbon Cube Cycle 1 '` (with trailing space). Custom only overrides the
+  // fields that Manage actually edits.
   const allSystems = useMemo(() => {
     const customMap = new Map(customSystems.map(s => [s.id, s]));
     const merged = COMPOST_SYSTEMS.map(s => {
       const c = customMap.get(s.id);
       customMap.delete(s.id);
-      return c ? { ...s, ...c } : s;
+      if (!c) return s;
+      return {
+        ...s,
+        // editable overrides from Manage
+        buildType: c.buildType ?? s.buildType,
+        mulchBins: c.mulchBins ?? s.mulchBins,
+        mulchType: c.mulchType ?? s.mulchType,
+        dimensions: c.dimensions ?? s.dimensions,
+        probeLabels: c.probeLabels && c.probeLabels.length > 0 ? c.probeLabels : s.probeLabels,
+      };
     });
     return [...merged, ...customMap.values()];
   }, [customSystems]);
