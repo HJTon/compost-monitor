@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import type { DailyEntry, AppSettings } from '@/types';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import type { DailyEntry, AppSettings, CompostSystem, BusinessInfo } from '@/types';
 import type { ToastMessage as ToastMsg } from '@/components/Toast';
 import {
   getAllEntries,
@@ -10,6 +10,12 @@ import {
   getSettings,
   saveSettings as dbSaveSettings,
   clearSyncQueue,
+  getAllCustomSystems,
+  saveCustomSystem,
+  deleteCustomSystem,
+  getAllBusinesses,
+  saveBusiness as dbSaveBusiness,
+  deleteBusiness as dbDeleteBusiness,
 } from '@/services/db';
 import { processSyncQueue, getPendingCount, queueEntrySync } from '@/services/syncService';
 import { DEFAULT_SETTINGS, generateId, getNZDate, getNZTime, COMPOST_SYSTEMS } from '@/utils/config';
@@ -21,6 +27,14 @@ interface CompostContextType {
   isSyncing: boolean;
   pendingCount: number;
   toasts: ToastMsg[];
+
+  // Systems
+  allSystems: CompostSystem[];
+  getSystem: (id: string) => CompostSystem | undefined;
+  addCustomSystem: (system: CompostSystem) => Promise<void>;
+  updateCustomSystem: (system: CompostSystem) => Promise<void>;
+  removeCustomSystem: (id: string) => Promise<void>;
+  setSystemActive: (id: string, active: boolean) => Promise<void>;
 
   // Entry operations
   saveEntry: (entry: DailyEntry) => Promise<void>;
@@ -40,6 +54,12 @@ interface CompostContextType {
   addToast: (type: ToastMsg['type'], message: string, action?: ToastMsg['action']) => void;
   dismissToast: (id: string) => void;
 
+  // Businesses
+  businesses: BusinessInfo[];
+  saveBusiness: (business: BusinessInfo) => Promise<void>;
+  deleteBusiness: (name: string) => Promise<void>;
+  refreshBusinesses: () => Promise<void>;
+
   // Refresh
   refreshEntries: () => Promise<void>;
 }
@@ -49,10 +69,25 @@ const CompostContext = createContext<CompostContextType | null>(null);
 export function CompostProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [customSystems, setCustomSystems] = useState<CompostSystem[]>([]);
+  const [businesses, setBusinesses] = useState<BusinessInfo[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+
+  // Merge hardcoded + custom so fields saved via Manage (buildType, dimensions,
+  // mulchBins, etc.) augment the hardcoded 11 systems. Custom entries with IDs
+  // not matching any hardcoded system are appended as-is.
+  const allSystems = useMemo(() => {
+    const customMap = new Map(customSystems.map(s => [s.id, s]));
+    const merged = COMPOST_SYSTEMS.map(s => {
+      const c = customMap.get(s.id);
+      customMap.delete(s.id);
+      return c ? { ...s, ...c } : s;
+    });
+    return [...merged, ...customMap.values()];
+  }, [customSystems]);
 
   const addToast = useCallback((type: ToastMsg['type'], message: string, action?: ToastMsg['action']) => {
     const id = generateId();
@@ -75,17 +110,79 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Load initial data
+  // Load initial data + auto-discover systems from spreadsheet
   useEffect(() => {
     async function init() {
-      const [allEntries, appSettings, count] = await Promise.all([
+      const [allEntries, appSettings, count, storedCustomSystems, storedBusinesses] = await Promise.all([
         getAllEntries(),
         getSettings(),
         getPendingCount(),
+        getAllCustomSystems(),
+        getAllBusinesses(),
       ]);
       setEntries(allEntries);
       setSettings(appSettings);
       setPendingCount(count);
+      setCustomSystems(storedCustomSystems);
+      setBusinesses(storedBusinesses);
+
+      // Auto-discover systems from the spreadsheet (when online)
+      if (navigator.onLine) {
+        try {
+          const res = await fetch('/.netlify/functions/compost-discover-systems');
+          if (res.ok) {
+            const data = await res.json();
+            const discovered: { tabName: string; probeCount: number }[] = data.systems || [];
+
+            // Build a set of all tab names we already know about
+            const knownTabs = new Set<string>();
+            for (const s of COMPOST_SYSTEMS) knownTabs.add(s.sheetTab.trim());
+            for (const s of storedCustomSystems) knownTabs.add(s.sheetTab.trim());
+
+            const newSystems: CompostSystem[] = [];
+            for (const d of discovered) {
+              if (knownTabs.has(d.tabName.trim())) continue;
+
+              // Auto-generate an id and shortName from the tab name
+              const id = d.tabName
+                .toLowerCase()
+                .replace(/#/g, '')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '');
+              const firstLetter = d.tabName.replace(/[^a-zA-Z]/, '').charAt(0).toUpperCase();
+              const numbers = d.tabName.replace(/[^0-9]/g, '');
+              const shortName = (firstLetter + numbers) || d.tabName.slice(0, 3).toUpperCase();
+
+              const system: CompostSystem = {
+                id,
+                name: d.tabName,
+                shortName,
+                sheetTab: d.tabName,
+                active: true,
+                probeLabels: Array.from({ length: d.probeCount }, (_, i) => String(i + 1)),
+              };
+
+              await saveCustomSystem(system);
+              newSystems.push(system);
+              knownTabs.add(d.tabName.trim());
+            }
+
+            if (newSystems.length > 0) {
+              setCustomSystems(prev => [...prev, ...newSystems]);
+              // Add new systems to active list
+              const newActiveIds = newSystems.map(s => s.id);
+              const newSettings = {
+                ...appSettings,
+                activeSystems: [...appSettings.activeSystems, ...newActiveIds],
+              };
+              await dbSaveSettings(newSettings);
+              setSettings(newSettings);
+            }
+          }
+        } catch {
+          // Discovery failed — no problem, hardcoded + stored systems still work
+        }
+      }
     }
     init();
   }, []);
@@ -160,6 +257,53 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     addToast('success', 'Pending items cleared');
   }, [addToast]);
 
+  const getSystem = useCallback((id: string): CompostSystem | undefined => {
+    return allSystems.find(s => s.id === id);
+  }, [allSystems]);
+
+  const addCustomSystem = useCallback(async (system: CompostSystem) => {
+    await saveCustomSystem(system);
+    setCustomSystems(prev => [...prev, system]);
+    // Automatically add to active systems so it appears in Measure + Analyse
+    const newSettings = {
+      ...settings,
+      activeSystems: [...settings.activeSystems, system.id],
+    };
+    await dbSaveSettings(newSettings);
+    setSettings(newSettings);
+  }, [settings]);
+
+  const updateCustomSystem = useCallback(async (system: CompostSystem) => {
+    await saveCustomSystem(system);
+    setCustomSystems(prev => {
+      const idx = prev.findIndex(s => s.id === system.id);
+      if (idx === -1) return [...prev, system];
+      const next = [...prev];
+      next[idx] = system;
+      return next;
+    });
+  }, []);
+
+  const removeCustomSystem = useCallback(async (id: string) => {
+    await deleteCustomSystem(id);
+    setCustomSystems(prev => prev.filter(s => s.id !== id));
+    const newSettings = {
+      ...settings,
+      activeSystems: settings.activeSystems.filter(sid => sid !== id),
+    };
+    await dbSaveSettings(newSettings);
+    setSettings(newSettings);
+  }, [settings]);
+
+  const setSystemActive = useCallback(async (id: string, active: boolean) => {
+    const newActiveSystems = active
+      ? [...settings.activeSystems.filter(sid => sid !== id), id]
+      : settings.activeSystems.filter(sid => sid !== id);
+    const newSettings = { ...settings, activeSystems: newActiveSystems };
+    await dbSaveSettings(newSettings);
+    setSettings(newSettings);
+  }, [settings]);
+
   const getEntryForSystemDate = useCallback(async (systemId: string, date: string) => {
     return getEntryBySystemDate(systemId, date);
   }, []);
@@ -173,7 +317,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createBlankEntry = useCallback((systemId: string): DailyEntry => {
-    const system = COMPOST_SYSTEMS.find(s => s.id === systemId);
+    const system = allSystems.find(s => s.id === systemId);
     const probeLabels = system?.probeLabels || [];
 
     return {
@@ -196,6 +340,10 @@ export function CompostProvider({ children }: { children: ReactNode }) {
       })),
       averageTemp: null,
       peakTemp: null,
+      height: null,
+      turn: false,
+      newWidth: null,
+      newLength: null,
       killCycleDays: 0,
       ventTemps: '',
       visualNotes: '',
@@ -205,6 +353,29 @@ export function CompostProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+  }, [allSystems]);
+
+  const saveBusiness = useCallback(async (business: BusinessInfo) => {
+    await dbSaveBusiness(business);
+    setBusinesses(prev => {
+      const idx = prev.findIndex(b => b.name === business.name);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = business;
+        return next;
+      }
+      return [...prev, business];
+    });
+  }, []);
+
+  const deleteBusiness = useCallback(async (name: string) => {
+    await dbDeleteBusiness(name);
+    setBusinesses(prev => prev.filter(b => b.name !== name));
+  }, []);
+
+  const refreshBusinesses = useCallback(async () => {
+    const all = await getAllBusinesses();
+    setBusinesses(all);
   }, []);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
@@ -222,6 +393,12 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         isSyncing,
         pendingCount,
         toasts,
+        allSystems,
+        getSystem,
+        addCustomSystem,
+        updateCustomSystem,
+        removeCustomSystem,
+        setSystemActive,
         saveEntry,
         getEntryForSystemDate,
         getSystemEntries,
@@ -232,6 +409,10 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         updateSettings,
         addToast,
         dismissToast,
+        businesses,
+        saveBusiness,
+        deleteBusiness,
+        refreshBusinesses,
         refreshEntries,
       }}
     >

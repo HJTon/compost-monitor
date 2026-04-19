@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 *.local
+
+# Local Netlify folder
+.netlify
+
+# Claude Code local settings
+.claude/

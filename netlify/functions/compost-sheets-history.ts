@@ -21,18 +21,104 @@ interface ParsedEntry {
   probes: (number | null)[];
   average: number | null;
   peak: number | null;
+  height: number | null;
+  turn: boolean;
+  sample: string;
   ventTemps: string;
   visualNotes: string;
   generalNotes: string;
 }
 
-function parseRow(row: string[]): ParsedEntry {
+// Detect probe count from the header row by counting columns between
+// the last fixed column (Odour, col index 6) and the Average column.
+// Falls back to legacy hardcoded map, then to 9.
+const LEGACY_PROBE_COUNT: Record<string, number> = {
+  'Carbon Cube Cycle 1': 3,
+  'Cylinder #1': 5,
+  'Cylinder #2': 5,
+  'Cylinder #3': 5,
+};
+
+function detectProbeCount(headerRow: string[], tabName: string): number {
+  if (headerRow.length === 0) return LEGACY_PROBE_COUNT[tabName] || 9;
+  const h = headerRow.map(c => c.toLowerCase().trim());
+  // Find the "average" column — probes sit between column 7 (index 7) and average
+  const avgIdx = h.findIndex(c => c.includes('averag'));
+  if (avgIdx > 7) return avgIdx - 7;
+  // If no average header found, try counting columns that look like probe headers
+  // (numeric labels like "1", "2", "Probe 1", "Core Centre", etc.)
+  // between index 7 and the first non-probe column
+  const probeStart = 7;
+  let count = 0;
+  for (let i = probeStart; i < h.length; i++) {
+    // Stop at known non-probe headers
+    if (h[i].includes('averag') || h[i].includes('peak') || h[i].includes('vent') ||
+        h[i].includes('visual') || h[i].includes('general') || h[i].includes('height') ||
+        h[i].includes('turn') || h[i].includes('sample') || h[i].includes('media')) break;
+    count++;
+  }
+  if (count > 0) return count;
+  return LEGACY_PROBE_COUNT[tabName] || 9;
+}
+
+interface ColMap {
+  avgCol: number;
+  peakCol: number;
+  heightCol: number | null;
+  widthCol: number | null;
+  lengthCol: number | null;
+  turnCol: number | null;
+  sampleCol: number | null;
+  ventCol: number;
+  visualCol: number;
+  generalCol: number;
+}
+
+function detectColumns(headerRow: string[], probeCount: number): ColMap {
+  const h = headerRow.map(c => c.toLowerCase().trim());
+  const find = (...terms: string[]) => h.findIndex(c => terms.some(t => c.includes(t)));
+
+  const avgIdx = find('averag');
+  const peakIdx = find('peak');
+
+  // Fall back to calculated positions if headers not found
+  const avgCol = avgIdx >= 0 ? avgIdx : 7 + probeCount;
+  const peakCol = peakIdx >= 0 ? peakIdx : avgCol + 1;
+
+  const heightIdx = find('height');
+  const widthIdx = find('width');
+  const lengthIdx = find('length', 'lenth'); // handle typo in some sheets
+  const turnIdx = find('turn');
+  const sampleIdx = find('sample');
+  const ventIdx = find('vent');
+  const visualIdx = find('visual');
+  const generalIdx = find('general');
+
+  return {
+    avgCol,
+    peakCol,
+    heightCol: heightIdx >= 0 ? heightIdx : null,
+    widthCol: widthIdx >= 0 ? widthIdx : null,
+    lengthCol: lengthIdx >= 0 ? lengthIdx : null,
+    turnCol: turnIdx >= 0 ? turnIdx : null,
+    sampleCol: sampleIdx >= 0 ? sampleIdx : null,
+    ventCol: ventIdx >= 0 ? ventIdx : peakCol + 1,
+    visualCol: visualIdx >= 0 ? visualIdx : peakCol + 2,
+    generalCol: generalIdx >= 0 ? generalIdx : peakCol + 3,
+  };
+}
+
+function parseRow(row: string[], probeCount: number, cols: ColMap): ParsedEntry {
   const parseNum = (val: string | undefined): number | null => {
     if (!val || val === '') return null;
     const n = parseFloat(val);
     return isNaN(n) ? null : n;
   };
 
+  const turnVal = cols.turnCol !== null ? (row[cols.turnCol] || '').trim().toLowerCase() : '';
+  // Match "turn", "turn 1", "turn 2", "turns", "yes", "y", "true", or any non-empty value in the turn column
+  const isTurn = turnVal !== '' && (turnVal.startsWith('turn') || turnVal === 'yes' || turnVal === 'y' || turnVal === 'true');
+  const sampleVal = cols.sampleCol !== null ? (row[cols.sampleCol] || '').trim() : '';
   return {
     date: row[0] || '',
     time: row[1] || '',
@@ -41,13 +127,15 @@ function parseRow(row: string[]): ParsedEntry {
     ambientMax: parseNum(row[4]),
     moisture: row[5] || '',
     odour: row[6] || '',
-    probes: Array.from({ length: 9 }, (_, i) => parseNum(row[7 + i])),
-    // Columns 16 (R) and 17 (S) are avg/peak (formulas)
-    average: parseNum(row[17]),
-    peak: parseNum(row[18]),
-    ventTemps: row[19] || '',
-    visualNotes: row[20] || '',
-    generalNotes: row[21] || '',
+    probes: Array.from({ length: probeCount }, (_, i) => parseNum(row[7 + i])),
+    average: parseNum(row[cols.avgCol]),
+    peak: parseNum(row[cols.peakCol]),
+    height: cols.heightCol !== null ? parseNum(row[cols.heightCol]) : null,
+    turn: isTurn,
+    sample: sampleVal,
+    ventTemps: row[cols.ventCol] || '',
+    visualNotes: row[cols.visualCol] || '',
+    generalNotes: row[cols.generalCol] || '',
   };
 }
 
@@ -87,21 +175,69 @@ export default async (request: Request, _context: Context) => {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: tab,
+      range: `'${tab}'`,
     });
 
     const rows = response.data.values || [];
-    // Skip header row(s), parse data rows
-    const dataRows = rows.slice(1);
+
+    // Scan first 5 rows to find the actual header row (may be preceded by a title row like "Pivot #3")
+    const HEADER_KEYWORDS = ['date', 'time', 'weather', 'averag', 'peak', 'height', 'moisture', 'probe', 'odour', 'ambient'];
+    let headerRowIndex = -1;
+    let headerRow: string[] = [];
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      const rowLower = (rows[i] || []).map((c: string) => c.toLowerCase().trim());
+      const matches = rowLower.filter(c => HEADER_KEYWORDS.some(k => c.includes(k))).length;
+      if (matches >= 2) { headerRowIndex = i; headerRow = rows[i]; break; }
+    }
+    const probeCount = detectProbeCount(headerRow, tab);
+    const cols = detectColumns(headerRow, probeCount);
+    const dataRows = rows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 0);
     const entries = dataRows
-      .map(row => parseRow(row))
+      .map(row => parseRow(row, probeCount, cols))
       .filter(e => e.date !== '') // skip empty rows
       .slice(-limit); // take last N entries
+
+    // Extract initial build dimensions from the sheet if width/length/height columns exist.
+    // Some sheets have a metadata row (no date) with initial dimensions right after the header.
+    let sheetDimensions: { heightCm: number | null; widthCm: number | null; lengthCm: number | null } | null = null;
+    if (cols.heightCol !== null || cols.widthCol !== null || cols.lengthCol !== null) {
+      const parseNum = (val: string | undefined): number | null => {
+        if (!val || val === '') return null;
+        const n = parseFloat(val);
+        return isNaN(n) ? null : n;
+      };
+      // Check first few data rows for a dimensions-only row (no date but has dimension values)
+      for (let i = 0; i < Math.min(5, dataRows.length); i++) {
+        const row = dataRows[i];
+        const date = (row[0] || '').trim();
+        const h = cols.heightCol !== null ? parseNum(row[cols.heightCol]) : null;
+        const w = cols.widthCol !== null ? parseNum(row[cols.widthCol]) : null;
+        const l = cols.lengthCol !== null ? parseNum(row[cols.lengthCol]) : null;
+        if ((h !== null || w !== null || l !== null) && date === '') {
+          sheetDimensions = { heightCm: h, widthCm: w, lengthCm: l };
+          break;
+        }
+      }
+      // If no metadata row found, check the first data row with dimensions
+      if (!sheetDimensions) {
+        for (let i = 0; i < Math.min(10, dataRows.length); i++) {
+          const row = dataRows[i];
+          const h = cols.heightCol !== null ? parseNum(row[cols.heightCol]) : null;
+          const w = cols.widthCol !== null ? parseNum(row[cols.widthCol]) : null;
+          const l = cols.lengthCol !== null ? parseNum(row[cols.lengthCol]) : null;
+          if (h !== null || w !== null || l !== null) {
+            sheetDimensions = { heightCm: h, widthCm: w, lengthCm: l };
+            break;
+          }
+        }
+      }
+    }
 
     return new Response(JSON.stringify({
       success: true,
       entries,
       total: dataRows.length,
+      ...(sheetDimensions ? { sheetDimensions } : {}),
     }), {
       status: 200,
       headers: {

@@ -18,8 +18,8 @@ export default async (request: Request, _context: Context) => {
 
   try {
     const url = new URL(request.url);
-    const lat = url.searchParams.get('lat') || '-39.06';
-    const lon = url.searchParams.get('lon') || '174.08';
+    const lat = url.searchParams.get('lat') || '-39.1672';
+    const lon = url.searchParams.get('lon') || '174.0955';
     const cacheKey = `${lat},${lon}`;
 
     // Check server-side cache

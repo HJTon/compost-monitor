@@ -1,0 +1,322 @@
+import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, X, Trash2, Plus, ImageOff, MoreHorizontal, Type, Crop, Check } from 'lucide-react';
+import type { MediaIndexItem, PhotoTransform } from '@/utils/photoSlots';
+import { bigThumb, parseTransform, transformToStyle } from '@/utils/photoSlots';
+import { FrameEditor } from './FrameEditor';
+
+interface PhotoGalleryProps {
+  items: MediaIndexItem[];
+  heightClass?: string;
+  onAdd: () => void;
+  onRemove?: (item: MediaIndexItem) => void;
+  onReplace?: () => void;
+  onCaptionChange?: (item: MediaIndexItem, caption: string) => void | Promise<void>;
+  onTransformChange?: (item: MediaIndexItem, t: PhotoTransform) => void | Promise<void>;
+  singleSlot?: boolean;
+  printMode?: boolean;
+}
+
+function imageSrc(it: MediaIndexItem, size = 1600): string {
+  return bigThumb(it.thumbnailUrl, size) || `https://drive.google.com/thumbnail?id=${it.fileId}&sz=w${size}`;
+}
+
+export function PhotoGallery({
+  items, heightClass = 'h-64 md:h-96', onAdd, onRemove, onReplace,
+  onCaptionChange, onTransformChange, singleSlot, printMode,
+}: PhotoGalleryProps) {
+  const [index, setIndex] = useState(0);
+  const [lightbox, setLightbox] = useState<MediaIndexItem | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editingCaption, setEditingCaption] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState('');
+  const [savingCaption, setSavingCaption] = useState(false);
+  const [editingFrame, setEditingFrame] = useState(false);
+  const [aspects, setAspects] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (index >= items.length) setIndex(Math.max(0, items.length - 1));
+  }, [items.length, index]);
+
+  useEffect(() => {
+    if (printMode) return;
+    function onKey(e: KeyboardEvent) {
+      if (lightbox) {
+        if (e.key === 'Escape') setLightbox(null);
+        return;
+      }
+      if (editingCaption || editingFrame || menuOpen) return;
+      if (items.length <= 1) return;
+      if (e.key === 'ArrowLeft') setIndex(i => (i - 1 + items.length) % items.length);
+      if (e.key === 'ArrowRight') setIndex(i => (i + 1) % items.length);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [items.length, lightbox, menuOpen, editingCaption, editingFrame, printMode]);
+
+  // Empty slot — show "Add photo" placeholder
+  if (items.length === 0) {
+    if (printMode) return null;
+    return (
+      <button
+        onClick={onAdd}
+        className={`w-full ${heightClass} rounded-xl border-2 border-dashed border-gray-300 bg-gray-50/50 flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-green-primary hover:text-green-primary hover:bg-green-50/50 transition`}
+      >
+        <ImageOff size={32} />
+        <div className="text-sm font-medium">Add photo</div>
+      </button>
+    );
+  }
+
+  // Print-mode: stacked, no slideshow, so every photo lands in the PDF
+  if (printMode) {
+    return (
+      <div className="space-y-4 print:space-y-2">
+        {items.map(it => {
+          const t = parseTransform(it.transform);
+          return (
+            <figure key={it.fileId} className="break-inside-avoid">
+              <div className="w-full aspect-[4/3] overflow-hidden rounded-lg">
+                <img
+                  src={imageSrc(it, 1600)}
+                  alt={it.caption || ''}
+                  loading="eager"
+                  className="w-full h-full"
+                  style={transformToStyle(t)}
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              {it.caption && <figcaption className="text-xs text-gray-600 mt-1">{it.caption}</figcaption>}
+            </figure>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const current = items[index];
+  const currentTransform = parseTransform(current.transform);
+  const multiple = items.length > 1;
+  const currentAspect = aspects[current.fileId];
+  const isPortrait = currentAspect && currentAspect < 0.95;
+
+  function openCaption() {
+    setMenuOpen(false);
+    setCaptionDraft(current.caption || '');
+    setEditingCaption(true);
+  }
+
+  function openFrame() {
+    setMenuOpen(false);
+    setEditingFrame(true);
+  }
+
+  async function saveCaption() {
+    if (!onCaptionChange) { setEditingCaption(false); return; }
+    setSavingCaption(true);
+    try {
+      await onCaptionChange(current, captionDraft.trim());
+      setEditingCaption(false);
+    } finally {
+      setSavingCaption(false);
+    }
+  }
+
+  async function saveTransform(t: PhotoTransform) {
+    if (onTransformChange) await onTransformChange(current, t);
+    setEditingFrame(false);
+  }
+
+  return (
+    <>
+      <div
+        className={`relative w-full rounded-xl overflow-hidden bg-gray-100 group ${isPortrait ? 'max-h-[70vh]' : heightClass}`}
+        style={isPortrait ? { aspectRatio: currentAspect } : undefined}
+      >
+        <img
+          src={imageSrc(current)}
+          alt={current.caption || ''}
+          className="w-full h-full cursor-zoom-in"
+          style={transformToStyle(currentTransform)}
+          referrerPolicy="no-referrer"
+          onClick={() => setLightbox(current)}
+          onLoad={(e) => {
+            const el = e.currentTarget;
+            if (el.naturalWidth && el.naturalHeight) {
+              const ratio = el.naturalWidth / el.naturalHeight;
+              setAspects(prev => prev[current.fileId] === ratio ? prev : { ...prev, [current.fileId]: ratio });
+            }
+          }}
+        />
+
+        {/* Top-right action cluster */}
+        <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          {singleSlot && onReplace && (
+            <button
+              onClick={onReplace}
+              className="bg-white/90 backdrop-blur rounded-full px-3 py-1.5 text-xs font-medium shadow hover:bg-white"
+            >
+              Replace
+            </button>
+          )}
+          {!singleSlot && (
+            <button
+              onClick={onAdd}
+              className="bg-white/90 backdrop-blur rounded-full w-8 h-8 flex items-center justify-center shadow hover:bg-white"
+              title="Add more"
+            >
+              <Plus size={16} />
+            </button>
+          )}
+          {/* Menu toggle */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v); }}
+              className="bg-white/90 backdrop-blur rounded-full w-8 h-8 flex items-center justify-center shadow hover:bg-white"
+              title="More"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 top-10 bg-white rounded-xl shadow-xl border border-gray-100 py-1 min-w-[160px] z-20">
+                  <button
+                    onClick={openCaption}
+                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50"
+                  >
+                    <Type size={14} /> Edit caption
+                  </button>
+                  <button
+                    onClick={openFrame}
+                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50"
+                  >
+                    <Crop size={14} /> Adjust frame
+                  </button>
+                  {onRemove && (
+                    <button
+                      onClick={() => { setMenuOpen(false); onRemove(current); }}
+                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 text-red-600"
+                    >
+                      <Trash2 size={14} /> Remove photo
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Prev / Next */}
+        {multiple && (
+          <>
+            <button
+              onClick={() => setIndex((index - 1 + items.length) % items.length)}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow hover:bg-white"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <button
+              onClick={() => setIndex((index + 1) % items.length)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow hover:bg-white"
+            >
+              <ChevronRight size={20} />
+            </button>
+          </>
+        )}
+
+        {/* Dots */}
+        {multiple && (
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+            {items.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setIndex(i)}
+                className={`w-2 h-2 rounded-full transition-all ${i === index ? 'bg-white w-6' : 'bg-white/60'}`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Caption overlay */}
+        {!editingCaption && current.caption && (
+          <button
+            onClick={openCaption}
+            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent text-white text-sm p-3 pt-10 text-left hover:from-black/80"
+            title="Click to edit caption"
+          >
+            {current.caption}
+          </button>
+        )}
+        {!editingCaption && !current.caption && onCaptionChange && (
+          <button
+            onClick={openCaption}
+            className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 bg-white/90 backdrop-blur rounded-full px-2.5 py-1 text-xs shadow hover:bg-white flex items-center gap-1"
+          >
+            <Type size={12} /> Add caption
+          </button>
+        )}
+
+        {/* Inline caption editor */}
+        {editingCaption && (
+          <div className="absolute bottom-0 left-0 right-0 bg-white border-t shadow-lg p-3 flex gap-2 items-start">
+            <input
+              type="text"
+              autoFocus
+              value={captionDraft}
+              onChange={e => setCaptionDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') saveCaption();
+                if (e.key === 'Escape') setEditingCaption(false);
+              }}
+              placeholder="Caption for this photo…"
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-green-primary"
+            />
+            <button
+              onClick={saveCaption}
+              disabled={savingCaption}
+              className="w-9 h-9 rounded-lg bg-green-primary text-white flex items-center justify-center disabled:opacity-50"
+            >
+              <Check size={16} />
+            </button>
+            <button
+              onClick={() => setEditingCaption(false)}
+              className="w-9 h-9 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button className="absolute top-4 right-4 text-white p-2" onClick={() => setLightbox(null)}>
+            <X size={24} />
+          </button>
+          <img
+            src={imageSrc(lightbox, 2400)}
+            alt={lightbox.caption || ''}
+            className="max-w-full max-h-full object-contain"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      )}
+
+      {/* Frame editor */}
+      {editingFrame && (
+        <FrameEditor
+          imageUrl={imageSrc(current, 1600)}
+          thumbnailUrl={current.thumbnailUrl}
+          fileId={current.fileId}
+          initial={currentTransform}
+          onCancel={() => setEditingFrame(false)}
+          onSave={saveTransform}
+        />
+      )}
+    </>
+  );
+}

@@ -5,9 +5,12 @@ import { getTempColor, getTempBorderColor } from '@/utils/config';
 interface TempStepperProps {
   probes: ProbeReading[];
   onChange: (probes: ProbeReading[]) => void;
+  /** Fired when the user commits a probe (moves away from it). Parent can
+   * inspect the value and decide whether to show a confirmation. */
+  onProbeCommit?: (probeIndex: number) => void;
 }
 
-export function TempStepper({ probes, onChange }: TempStepperProps) {
+export function TempStepper({ probes, onChange, onProbeCommit }: TempStepperProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userInteracted, setUserInteracted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +39,7 @@ export function TempStepper({ probes, onChange }: TempStepperProps) {
   const handleNext = () => {
     setUserInteracted(true);
     if (currentIndex < probes.length - 1) {
+      onProbeCommit?.(currentIndex);
       setCurrentIndex(currentIndex + 1);
     }
   };
@@ -43,6 +47,7 @@ export function TempStepper({ probes, onChange }: TempStepperProps) {
   const handlePrev = () => {
     setUserInteracted(true);
     if (currentIndex > 0) {
+      onProbeCommit?.(currentIndex);
       setCurrentIndex(currentIndex - 1);
     }
   };
@@ -70,7 +75,11 @@ export function TempStepper({ probes, onChange }: TempStepperProps) {
         {probes.map((p, i) => (
           <button
             key={i}
-            onClick={() => { setUserInteracted(true); setCurrentIndex(i); }}
+            onClick={() => {
+              setUserInteracted(true);
+              if (i !== currentIndex) onProbeCommit?.(currentIndex);
+              setCurrentIndex(i);
+            }}
             className={`w-3 h-3 rounded-full transition-all ${
               i === currentIndex
                 ? 'bg-green-primary scale-125'

@@ -1,6 +1,27 @@
 import type { DailyEntry, SyncQueueItem } from '@/types';
-import { getEntry, saveEntry, getMediaItem, getMediaByEntry, saveMedia, addToSyncQueue, getPendingSyncItems, updateSyncItem, removeSyncItem } from './db';
-import { generateId } from '@/utils/config';
+import { getEntry, saveEntry, getMediaItem, getMediaByEntry, saveMedia, addToSyncQueue, getPendingSyncItems, updateSyncItem, removeSyncItem, getAllCustomSystems } from './db';
+import { generateId, COMPOST_SYSTEMS } from '@/utils/config';
+
+// Resolve the Google Sheet tab name for a system ID.
+// Checks hardcoded systems first, then custom systems in IndexedDB.
+// Falls back to the system ID itself (handled server-side by SYSTEM_TAB_MAP).
+async function resolveSheetTab(systemId: string): Promise<string> {
+  const hardcoded = COMPOST_SYSTEMS.find(s => s.id === systemId);
+  if (hardcoded) return hardcoded.sheetTab;
+  const custom = await getAllCustomSystems();
+  const customSys = custom.find(s => s.id === systemId);
+  if (customSys) return customSys.sheetTab;
+  return systemId;
+}
+
+async function resolveSystemName(systemId: string): Promise<string | null> {
+  const hardcoded = COMPOST_SYSTEMS.find(s => s.id === systemId);
+  if (hardcoded) return hardcoded.name;
+  const custom = await getAllCustomSystems();
+  const customSys = custom.find(s => s.id === systemId);
+  if (customSys) return customSys.name;
+  return null;
+}
 
 const MAX_RETRIES = 5;
 
@@ -52,6 +73,10 @@ async function syncMediaToDrive(mediaId: string): Promise<boolean> {
       return false;
     }
 
+    // Look up the system name so uploads land in a per-system subfolder on Drive
+    const entry = await getEntry(media.entryId);
+    const systemName = entry ? await resolveSystemName(entry.systemId) : null;
+
     const res = await fetch('/.netlify/functions/compost-media-upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -59,6 +84,7 @@ async function syncMediaToDrive(mediaId: string): Promise<boolean> {
         mediaData,
         mimeType: media.mimeType,
         filename: media.filename,
+        ...(systemName ? { systemName } : {}),
       }),
     });
 
@@ -86,6 +112,7 @@ async function syncMediaToDrive(mediaId: string): Promise<boolean> {
 async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
   try {
     const probeValues = entry.probes.map(p => p.value);
+    const sheetTab = await resolveSheetTab(entry.systemId);
 
     // Collect Drive URLs for any media already uploaded for this entry
     const mediaItems = await getMediaByEntry(entry.id);
@@ -97,7 +124,8 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tab: entry.systemId,
+        tab: sheetTab,
+        probeCount: entry.probes.length,
         date: entry.date,
         time: entry.time,
         weather: entry.weather,
@@ -110,6 +138,10 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
         visualNotes: entry.visualNotes,
         generalNotes: entry.generalNotes,
         mediaLinks,
+        height: entry.height,
+        turn: entry.turn || false,
+        newWidth: entry.newWidth ?? null,
+        newLength: entry.newLength ?? null,
       }),
     });
 

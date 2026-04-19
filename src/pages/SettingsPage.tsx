@@ -1,9 +1,23 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, MapPin, Download, CheckCircle, Share } from 'lucide-react';
+import { RefreshCw, MapPin, Download, CheckCircle, Share, Package } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
-import { COMPOST_SYSTEMS } from '@/utils/config';
+
+const APP_VERSION = __APP_VERSION__;
+const BUILD_TIME = __BUILD_TIME__;
+
+function formatBuildTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
 
 export function SettingsPage() {
   const { settings, updateSettings, syncNow, discardPending, isSyncing, pendingCount, addToast } = useCompost();
@@ -11,6 +25,8 @@ export function SettingsPage() {
   const [lon, setLon] = useState(settings.farmLongitude.toString());
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 
   useEffect(() => {
@@ -30,18 +46,46 @@ export function SettingsPage() {
     if (outcome === 'accepted') { setInstallPrompt(null); setIsInstalled(true); }
   };
 
-  const handleToggleSystem = (systemId: string) => {
-    const current = settings.activeSystems;
-    const updated = current.includes(systemId)
-      ? current.filter(id => id !== systemId)
-      : [...current, systemId];
-    updateSettings({ activeSystems: updated });
-  };
-
   const handleEntryModeToggle = () => {
     const newMode = settings.entryMode === 'stepper' ? 'grid' : 'stepper';
     updateSettings({ entryMode: newMode });
     addToast('success', `Switched to ${newMode} mode`);
+  };
+
+  const handleCheckForUpdates = async () => {
+    setUpdateChecking(true);
+    setUpdateStatus(null);
+    try {
+      if (!('serviceWorker' in navigator)) {
+        setUpdateStatus('Service workers not supported on this browser');
+        return;
+      }
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        setUpdateStatus('No service worker registered yet — try reloading the app');
+        return;
+      }
+      await reg.update();
+      // Give the browser a moment to detect a waiting worker, then check state
+      await new Promise(r => setTimeout(r, 800));
+      if (reg.waiting || reg.installing) {
+        // A new version is available — apply it immediately via the global
+        // hook set by UpdatePrompt. This triggers skipWaiting + reload.
+        const apply = (window as unknown as { __applyUpdate?: () => void }).__applyUpdate;
+        if (apply) {
+          setUpdateStatus('New version found — applying…');
+          apply();
+        } else {
+          setUpdateStatus('New version found — please reload the app');
+        }
+      } else {
+        setUpdateStatus('You are on the latest version');
+      }
+    } catch (err) {
+      setUpdateStatus(`Check failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setUpdateChecking(false);
+    }
   };
 
   const handleSaveCoords = () => {
@@ -58,6 +102,37 @@ export function SettingsPage() {
       <Header title="Settings" showBack />
 
       <div className="p-4 space-y-4">
+        {/* App version */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 mb-3">
+            <Package size={18} className="text-green-primary" />
+            <h3 className="font-semibold text-gray-900">App Version</h3>
+          </div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm text-gray-600">Version</span>
+            <span className="font-mono text-sm font-medium text-gray-900">v{APP_VERSION}</span>
+          </div>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-gray-600">Built</span>
+            <span className="text-xs text-gray-500">{formatBuildTime(BUILD_TIME)}</span>
+          </div>
+          <Button
+            fullWidth
+            variant="outline"
+            size="sm"
+            onClick={handleCheckForUpdates}
+            disabled={updateChecking}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <RefreshCw size={16} className={updateChecking ? 'animate-spin' : ''} />
+              {updateChecking ? 'Checking…' : 'Check for Updates'}
+            </div>
+          </Button>
+          {updateStatus && (
+            <p className="mt-2 text-xs text-gray-600 text-center">{updateStatus}</p>
+          )}
+        </div>
+
         {/* Install */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <h3 className="font-semibold text-gray-900 mb-3">Add to Home Screen</h3>
@@ -167,24 +242,6 @@ export function SettingsPage() {
               ? 'One probe at a time with large input (best for one-handed use)'
               : 'All 9 probes visible in a 3x3 grid'}
           </p>
-        </div>
-
-        {/* Active systems */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <h3 className="font-semibold text-gray-900 mb-3">Active Systems</h3>
-          <div className="space-y-2">
-            {COMPOST_SYSTEMS.map(sys => (
-              <label key={sys.id} className="flex items-center justify-between py-2">
-                <span className="text-gray-700">{sys.name}</span>
-                <input
-                  type="checkbox"
-                  checked={settings.activeSystems.includes(sys.id)}
-                  onChange={() => handleToggleSystem(sys.id)}
-                  className="w-5 h-5 rounded border-gray-300 text-green-primary focus:ring-green-primary"
-                />
-              </label>
-            ))}
-          </div>
         </div>
 
         {/* Farm location */}

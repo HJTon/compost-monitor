@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { X, Camera, Video } from 'lucide-react';
 import { saveMedia } from '@/services/db';
 import { generateId } from '@/utils/config';
@@ -7,20 +7,35 @@ import type { MediaItem } from '@/types';
 interface MediaCaptureProps {
   entryId: string;
   systemId: string;
+  systemName?: string;
   date: string;
+  mode?: 'photo' | 'video';
   onCapture: (item: MediaItem) => void;
   onClose: () => void;
 }
 
-export function MediaCapture({ entryId, systemId, date, onCapture, onClose }: MediaCaptureProps) {
+export function MediaCapture({ entryId, systemId, systemName: _systemName, date, mode, onCapture, onClose }: MediaCaptureProps) {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+
+  // When a specific mode is provided, skip the menu and trigger the input directly
+  useEffect(() => {
+    if (mode === 'photo') {
+      const t = setTimeout(() => photoInputRef.current?.click(), 50);
+      return () => clearTimeout(t);
+    }
+    if (mode === 'video') {
+      const t = setTimeout(() => videoInputRef.current?.click(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [mode]);
 
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const base64 = await fileToBase64(file);
+    // Resize photo to max 1600px and compress to stay under upload limits
+    const base64 = await resizePhoto(file, 1600, 0.8);
     const thumbnail = await generateThumbnail(base64);
     const safeName = systemId.replace(/[^a-zA-Z0-9]/g, '-');
     const timestamp = Date.now().toString(36);
@@ -80,6 +95,33 @@ export function MediaCapture({ entryId, systemId, date, onCapture, onClose }: Me
     onClose();
   };
 
+  // Hidden inputs always rendered so refs are available for the useEffect trigger
+  const inputs = (
+    <>
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoCapture}
+        className="hidden"
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        capture="environment"
+        onChange={handleVideoCapture}
+        className="hidden"
+      />
+    </>
+  );
+
+  // When a specific mode was requested, skip the menu — the input is triggered via useEffect
+  if (mode) {
+    return inputs;
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
       <div className="bg-white w-full rounded-t-2xl p-6 animate-slide-up">
@@ -108,22 +150,7 @@ export function MediaCapture({ entryId, systemId, date, onCapture, onClose }: Me
           </button>
         </div>
 
-        <input
-          ref={photoInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handlePhotoCapture}
-          className="hidden"
-        />
-        <input
-          ref={videoInputRef}
-          type="file"
-          accept="video/*"
-          capture="environment"
-          onChange={handleVideoCapture}
-          className="hidden"
-        />
+        {inputs}
       </div>
     </div>
   );
@@ -151,6 +178,28 @@ async function generateThumbnail(base64: string, maxSize = 200): Promise<string>
       resolve(canvas.toDataURL('image/jpeg', 0.7));
     };
     img.src = base64;
+  });
+}
+
+async function resizePhoto(file: File, maxDim = 1600, quality = 0.8): Promise<string> {
+  const dataUrl = await fileToBase64(file);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = dataUrl;
   });
 }
 

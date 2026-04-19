@@ -1,30 +1,26 @@
 import type { CompostSystem, AppSettings } from '@/types';
 
-// The 9 probe positions in walking order for the stepper
-const STANDARD_PROBES = [
-  'Core Centre',
-  'Core Left',
-  'Core Right',
-  'Mid Centre',
-  'Mid Left',
-  'Mid Right',
-  'Edge Centre',
-  'Edge Left',
-  'Edge Right',
-];
+// 9-probe systems (Pivots, Batches)
+const PROBES_9 = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+// 5-probe systems (Cylinders)
+const PROBES_5 = ['1', '2', '3', '4', '5'];
+
+// 3-probe systems (Carbon Cube)
+const PROBES_3 = ['1', '2', '3'];
 
 export const COMPOST_SYSTEMS: CompostSystem[] = [
-  { id: 'pivot-1', name: 'Pivot #1', shortName: 'P1', sheetTab: 'Pivot #1', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'pivot-2', name: 'Pivot #2', shortName: 'P2', sheetTab: 'Pivot #2', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'pivot-3', name: 'Pivot #3', shortName: 'P3', sheetTab: 'Pivot #3', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'pivot-4', name: 'Pivot #4', shortName: 'P4', sheetTab: 'Pivot #4', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'carbon-cube-2', name: 'Carbon Cube Cycle 2', shortName: 'CC2', sheetTab: 'Carbon Cube Cycle 2', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'cylinder-1', name: 'Cylinder #1', shortName: 'C1', sheetTab: 'Cylinder #1', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'cylinder-2', name: 'Cylinder #2', shortName: 'C2', sheetTab: 'Cylinder #2', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'cylinder-3', name: 'Cylinder #3', shortName: 'C3', sheetTab: 'Cylinder #3', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'batch-1', name: 'Batch 1', shortName: 'B1', sheetTab: 'Batch 1', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'batch-2', name: 'Batch 2', shortName: 'B2', sheetTab: 'Batch 2', active: true, probeLabels: STANDARD_PROBES },
-  { id: 'batch-3', name: 'Batch 3', shortName: 'B3', sheetTab: 'Batch 3', active: true, probeLabels: STANDARD_PROBES },
+  { id: 'pivot-1', name: 'Pivot #1', shortName: 'P1', sheetTab: 'Pivot #1', active: true, probeLabels: PROBES_9 },
+  { id: 'pivot-2', name: 'Pivot #2', shortName: 'P2', sheetTab: 'Pivot #2', active: true, probeLabels: PROBES_9 },
+  { id: 'pivot-3', name: 'Pivot #3', shortName: 'P3', sheetTab: 'Pivot #3', active: true, probeLabels: PROBES_9 },
+  { id: 'pivot-4', name: 'Pivot #4', shortName: 'P4', sheetTab: 'Pivot #4', active: true, probeLabels: PROBES_9 },
+  { id: 'carbon-cube-1', name: 'Carbon Cube Cycle 1', shortName: 'CC1', sheetTab: 'Carbon Cube Cycle 1 ', active: true, probeLabels: PROBES_3 },
+  { id: 'cylinder-1', name: 'Cylinder #1', shortName: 'C1', sheetTab: 'Cylinder #1', active: true, probeLabels: PROBES_5 },
+  { id: 'cylinder-2', name: 'Cylinder #2', shortName: 'C2', sheetTab: 'Cylinder #2', active: true, probeLabels: PROBES_5 },
+  { id: 'cylinder-3', name: 'Cylinder #3', shortName: 'C3', sheetTab: 'Cylinder #3', active: true, probeLabels: PROBES_5 },
+  { id: 'batch-1', name: 'Batch 1', shortName: 'B1', sheetTab: 'Batch 1', active: true, probeLabels: PROBES_9 },
+  { id: 'batch-2', name: 'Batch 2', shortName: 'B2', sheetTab: 'Batch 2', active: true, probeLabels: PROBES_9 },
+  { id: 'batch-3', name: 'Batch 3', shortName: 'B3', sheetTab: 'Batch 3', active: true, probeLabels: PROBES_9 },
 ];
 
 // Kill cycle threshold: 131°F (55°C) for 3 consecutive days
@@ -37,13 +33,49 @@ export const TEMP_COLD_MAX = 100;
 export const TEMP_WARM_MAX = 130;
 export const TEMP_HOT_MAX = 160;
 
+// Guardrail limits — readings outside this range trigger a confirmation
+// before saving, to catch typos / mis-readings.
+export const TEMP_UPPER_LIMIT_F = 200;
+export const TEMP_ABSOLUTE_LOWER_F = 50;
+
+/**
+ * Dynamic lower limit for probe readings in °F.
+ * On a cold day the limit falls back to 50°F. On a warm day the pile
+ * should generally be at or above ambient, so we lift the limit to
+ * roughly match ambient max.
+ * @param ambientMaxC — ambient max in °C (null if unknown)
+ */
+export function getTempLowerLimitF(ambientMaxC: number | null | undefined): number {
+  if (ambientMaxC === null || ambientMaxC === undefined || Number.isNaN(ambientMaxC)) {
+    return TEMP_ABSOLUTE_LOWER_F;
+  }
+  const ambientMaxF = ambientMaxC * 9 / 5 + 32;
+  return Math.max(TEMP_ABSOLUTE_LOWER_F, Math.round(ambientMaxF));
+}
+
+// Default build types — user can add more via the app
+export const DEFAULT_BUILD_TYPES = [
+  'Standard Johnson Su',
+  'Cylinder Johnson Su',
+  'Single Pipe Cylinder Johnson Su',
+];
+
+// Default mulch types — user can add more via the app
+export const DEFAULT_MULCH_TYPES = [
+  'Fine',
+  'Medium',
+  'Chunky',
+];
+
 // Default settings
 export const DEFAULT_SETTINGS: AppSettings = {
   entryMode: 'stepper',
   activeSystems: COMPOST_SYSTEMS.map(s => s.id),
-  farmLatitude: -39.06,
-  farmLongitude: 174.08,
+  farmLatitude: -39.1672,
+  farmLongitude: 174.0955,
   lastSyncTime: null,
+  customBuildTypes: [],
+  customMulchTypes: [],
 };
 
 // Spreadsheet ID

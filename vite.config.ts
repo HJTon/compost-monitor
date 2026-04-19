@@ -3,13 +3,21 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { readFileSync } from 'fs'
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+const buildTime = new Date().toISOString()
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __BUILD_TIME__: JSON.stringify(buildTime),
+  },
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
         name: 'Compost Monitor',
@@ -34,6 +42,14 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Activate new SW immediately and take over all open tabs — without these,
+        // a new service worker would sit in "waiting" state until every tab of the
+        // PWA is closed, which on home-screen PWAs almost never happens.
+        skipWaiting: true,
+        clientsClaim: true,
+        // Never cache Netlify function responses — they must always hit the network
+        // so writes/reads go straight to Google Sheets.
+        navigateFallbackDenylist: [/^\/\.netlify\/functions\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\.open-meteo\.com\/.*/i,

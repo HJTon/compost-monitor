@@ -5,6 +5,8 @@ import { getTempColor, getTempBorderColor } from '@/utils/config';
 interface TempGridProps {
   probes: ProbeReading[];
   onChange: (probes: ProbeReading[]) => void;
+  /** Fired when a probe cell loses focus, for guardrail checks. */
+  onProbeCommit?: (probeIndex: number) => void;
 }
 
 // 3x3 grid mapping: rows are Core/Mid/Edge, cols are Left/Centre/Right
@@ -18,7 +20,7 @@ const GRID_ORDER = [1, 0, 2, 4, 3, 5, 7, 6, 8];
 const ROW_LABELS = ['Core', 'Mid', 'Edge'];
 const COL_LABELS = ['Left', 'Centre', 'Right'];
 
-export function TempGrid({ probes, onChange }: TempGridProps) {
+export function TempGrid({ probes, onChange, onProbeCommit }: TempGridProps) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleValueChange = (probeIndex: number, value: string) => {
@@ -32,6 +34,7 @@ export function TempGrid({ probes, onChange }: TempGridProps) {
   const handleKeyDown = (e: React.KeyboardEvent, gridPos: number) => {
     if (e.key === 'Enter' && gridPos < 8) {
       e.preventDefault();
+      onProbeCommit?.(GRID_ORDER[gridPos]);
       inputRefs.current[gridPos + 1]?.focus();
       inputRefs.current[gridPos + 1]?.select();
     }
@@ -69,6 +72,7 @@ export function TempGrid({ probes, onChange }: TempGridProps) {
                   onChange={e => handleValueChange(probeIndex, e.target.value)}
                   onKeyDown={e => handleKeyDown(e, gridPos)}
                   onFocus={e => e.target.select()}
+                  onBlur={() => onProbeCommit?.(probeIndex)}
                   placeholder="---"
                   className="w-full text-center text-lg font-bold py-3 bg-transparent outline-none placeholder-gray-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />

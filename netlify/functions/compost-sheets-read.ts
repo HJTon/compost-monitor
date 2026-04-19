@@ -42,9 +42,19 @@ export default async (request: Request, _context: Context) => {
 
     const sheets = getGoogleSheetsClient();
 
+    // List all tab names
+    if (tab === '__tabs__') {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
+      const tabNames = meta.data.sheets?.map(s => s.properties?.title) || [];
+      return new Response(JSON.stringify({ success: true, tabs: tabNames }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: tab,
+      range: `'${tab}'`,
     });
 
     return new Response(JSON.stringify({

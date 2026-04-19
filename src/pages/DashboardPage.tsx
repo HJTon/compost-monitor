@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Thermometer, CheckCircle, Clock, BarChart3 } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Thermometer, CheckCircle, Clock, FlaskConical } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { useCompost } from '@/contexts/CompostContext';
-import { COMPOST_SYSTEMS, getNZDate } from '@/utils/config';
+import { getNZDate } from '@/utils/config';
 import type { DailyEntry } from '@/types';
+
+type Tab = 'measure' | 'sample';
 
 interface SystemCardData {
   systemId: string;
@@ -17,12 +19,18 @@ interface SystemCardData {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { entries, settings } = useCompost();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { entries, settings, allSystems } = useCompost();
   const [cards, setCards] = useState<SystemCardData[]>([]);
   const today = getNZDate();
 
+  const activeTab: Tab = searchParams.get('tab') === 'sample' ? 'sample' : 'measure';
+  const setTab = (tab: Tab) => {
+    setSearchParams(tab === 'measure' ? {} : { tab });
+  };
+
   useEffect(() => {
-    const activeSystems = COMPOST_SYSTEMS.filter(s => settings.activeSystems.includes(s.id));
+    const activeSystems = allSystems.filter(s => settings.activeSystems.includes(s.id));
 
     const cardData: SystemCardData[] = activeSystems.map(sys => {
       const systemEntries = entries
@@ -42,69 +50,109 @@ export function DashboardPage() {
     });
 
     setCards(cardData);
-  }, [entries, settings.activeSystems, today]);
+  }, [entries, settings.activeSystems, allSystems, today]);
+
+  const isSample = activeTab === 'sample';
 
   return (
-    <div className="min-h-screen bg-green-50/50">
+    <div className={`min-h-screen ${isSample ? 'bg-blue-50/50' : 'bg-green-50/50'}`}>
       <Header title="Compost Monitor" />
       <SyncStatusBar />
 
       <div className="p-4 space-y-3">
-        {/* Quick nav */}
-        <div className="flex gap-2">
+        {/* Tab toggle */}
+        <div className="flex bg-white rounded-xl p-1 shadow-sm border border-gray-100">
+          <button
+            onClick={() => setTab('measure')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              !isSample
+                ? 'bg-green-600 text-white shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Thermometer size={16} />
+            Measure
+          </button>
+          <button
+            onClick={() => setTab('sample')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              isSample
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <FlaskConical size={16} />
+            Sample
+          </button>
+        </div>
+
+        {/* Quick nav (measure mode only) */}
+        {!isSample && (
           <button
             onClick={() => navigate('/history')}
-            className="flex-1 bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-center gap-2 text-gray-600 text-sm active:scale-95 transition-transform"
+            className="w-full bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-center gap-2 text-gray-600 text-sm active:scale-95 transition-transform"
           >
             <Clock size={18} />
             History
           </button>
-          <button
-            onClick={() => navigate('/settings')}
-            className="flex-1 bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-center gap-2 text-gray-600 text-sm active:scale-95 transition-transform"
-          >
-            <BarChart3 size={18} />
-            Settings
-          </button>
-        </div>
+        )}
 
         {/* System cards */}
         <div className="space-y-3">
           {cards.map(card => (
             <button
               key={card.systemId}
-              onClick={() => navigate(`/entry/${card.systemId}`)}
-              className="w-full bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-left active:scale-[0.98] transition-transform"
+              onClick={() => navigate(isSample ? `/sample/${card.systemId}` : `/entry/${card.systemId}`)}
+              className={`w-full rounded-xl p-4 shadow-sm border text-left active:scale-[0.98] transition-transform ${
+                isSample
+                  ? 'bg-white border-blue-100'
+                  : 'bg-white border-gray-100'
+              }`}
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                    <Thermometer size={20} className="text-green-primary" />
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    isSample ? 'bg-blue-100' : 'bg-green-100'
+                  }`}>
+                    {isSample ? (
+                      <FlaskConical size={20} className="text-blue-500" />
+                    ) : (
+                      <Thermometer size={20} className="text-green-primary" />
+                    )}
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">{card.name}</h3>
-                    {card.lastEntry && (
+                    {!isSample && card.lastEntry && (
                       <p className="text-xs text-gray-500">
                         Last: {card.lastEntry.date}
                         {card.lastEntry.averageTemp !== null && ` - Avg: ${card.lastEntry.averageTemp}°F`}
                       </p>
                     )}
-                    {!card.lastEntry && (
+                    {!isSample && !card.lastEntry && (
                       <p className="text-xs text-gray-400">No entries yet</p>
+                    )}
+                    {isSample && (
+                      <p className="text-xs text-blue-400">Tap to log a sample</p>
                     )}
                   </div>
                 </div>
 
-                {card.hasToday ? (
-                  <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
-                    <CheckCircle size={20} />
-                    <span>Done</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-gray-400 text-sm">
-                    <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
-                    <span>Not yet</span>
-                  </div>
+                {!isSample && (
+                  card.hasToday ? (
+                    <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                      <CheckCircle size={20} />
+                      <span>Done</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-gray-400 text-sm">
+                      <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
+                      <span>Not yet</span>
+                    </div>
+                  )
+                )}
+
+                {isSample && (
+                  <FlaskConical size={18} className="text-blue-300" />
                 )}
               </div>
             </button>
@@ -113,9 +161,19 @@ export function DashboardPage() {
 
         {cards.length === 0 && (
           <div className="text-center py-12 text-gray-400">
-            <Thermometer size={48} className="mx-auto mb-3 opacity-50" />
-            <p>No active systems</p>
-            <p className="text-sm">Enable systems in Settings</p>
+            {isSample ? (
+              <>
+                <FlaskConical size={48} className="mx-auto mb-3 opacity-50" />
+                <p>No active systems</p>
+                <p className="text-sm">Enable systems in Settings to log samples</p>
+              </>
+            ) : (
+              <>
+                <Thermometer size={48} className="mx-auto mb-3 opacity-50" />
+                <p>No active systems</p>
+                <p className="text-sm">Enable systems in Settings</p>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,11 +1,34 @@
 import { useNavigate } from 'react-router-dom';
-import { Thermometer, Hammer, TrendingUp } from 'lucide-react';
+import { Thermometer, Hammer, TrendingUp, Settings2, Settings } from 'lucide-react';
+
+function formatUpdated(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return iso;
+  }
+}
+
+const UPDATED_LABEL = `Updated ${formatUpdated(__BUILD_TIME__)}`;
 
 export function LandingPage() {
   const navigate = useNavigate();
 
   return (
     <div className="h-[100dvh] bg-green-primary flex flex-col p-5 gap-5">
+
+      {/* Settings — top-right */}
+      <button
+        onClick={() => navigate('/settings')}
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white/80 hover:bg-white/20 transition"
+        aria-label="Settings"
+      >
+        <Settings size={20} />
+      </button>
 
       {/* Branding */}
       <div className="flex flex-col items-center pt-6 gap-3">
@@ -16,7 +39,7 @@ export function LandingPage() {
         />
         <div className="text-center">
           <div className="text-white font-bold text-xl tracking-tight">Compost Monitor</div>
-          <div className="text-white/50 text-xs mt-0.5 tracking-wide">by Fuller Light Ltd.</div>
+          <div className="text-white/50 text-xs mt-0.5 tracking-wide">{UPDATED_LABEL}</div>
         </div>
       </div>
 
@@ -34,26 +57,36 @@ export function LandingPage() {
         </div>
       </button>
 
-      {/* Build + Analyse — secondary actions */}
-      <div className="flex gap-4 flex-[2]">
+      {/* Build + Analyse + Manage — secondary actions */}
+      <div className="flex gap-3 flex-[2]">
         <button
           onClick={() => navigate('/build')}
-          className="flex-1 bg-white/10 border border-white/20 rounded-2xl flex flex-col items-center justify-center gap-2.5 active:scale-[0.98] transition-transform"
+          className="flex-1 bg-white/10 border border-white/20 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition-transform"
         >
-          <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center">
-            <Hammer size={24} className="text-white" />
+          <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
+            <Hammer size={22} className="text-white" />
           </div>
-          <div className="text-white font-semibold text-base">Let's Build</div>
+          <div className="text-white font-semibold text-sm">Let's Build</div>
         </button>
 
         <button
           onClick={() => navigate('/analyse')}
-          className="flex-1 bg-white/10 border border-white/20 rounded-2xl flex flex-col items-center justify-center gap-2.5 active:scale-[0.98] transition-transform"
+          className="flex-1 bg-white/10 border border-white/20 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition-transform"
         >
-          <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center">
-            <TrendingUp size={24} className="text-white" />
+          <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
+            <TrendingUp size={22} className="text-white" />
           </div>
-          <div className="text-white font-semibold text-base">Let's Analyse</div>
+          <div className="text-white font-semibold text-sm">Let's Analyse</div>
+        </button>
+
+        <button
+          onClick={() => navigate('/manage')}
+          className="flex-1 bg-white/10 border border-white/20 rounded-2xl flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+        >
+          <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
+            <Settings2 size={22} className="text-white" />
+          </div>
+          <div className="text-white font-semibold text-sm">Let's Manage</div>
         </button>
       </div>
 

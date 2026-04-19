@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Camera } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { useCompost } from '@/contexts/CompostContext';
 import { getSystemById, getTempColor } from '@/utils/config';
@@ -73,8 +73,13 @@ export function HistoryPage() {
                     <div className="text-sm text-gray-500 mt-1">
                       {entry.time} · {entry.weather || '--'} · {entry.moisture || '--'}
                     </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      {entry.probes.filter(p => p.value !== null).length}/9 probes
+                    <div className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                      {entry.probes.filter(p => p.value !== null).length}/{entry.probes.length} probes
+                      {entry.mediaIds.length > 0 && (
+                        <span className="inline-flex items-center gap-0.5 ml-1">
+                          · <Camera size={12} /> {entry.mediaIds.length}
+                        </span>
+                      )}
                       {entry.synced ? ' · Synced' : ' · Pending'}
                     </div>
                   </div>

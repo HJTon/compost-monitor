@@ -6,7 +6,7 @@ function getDriveClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '{}');
   const auth = new google.auth.GoogleAuth({
     credentials,
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
+    scopes: ['https://www.googleapis.com/auth/drive'],
   });
   return google.drive({ version: 'v3', auth });
 }
@@ -15,6 +15,38 @@ interface UploadRequest {
   mediaData: string;  // base64 encoded (with or without data URL prefix)
   mimeType: string;
   filename: string;
+  systemName?: string; // if provided, upload into a subfolder with this name
+}
+
+async function getOrCreateSubfolder(
+  drive: ReturnType<typeof getDriveClient>,
+  parentFolderId: string,
+  folderName: string,
+): Promise<string> {
+  const safeName = folderName.replace(/[/\\?%*:|"<>]/g, '-').trim();
+
+  const list = await drive.files.list({
+    q: `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed=false`,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    fields: 'files(id)',
+  });
+
+  if (list.data.files && list.data.files.length > 0) {
+    return list.data.files[0].id!;
+  }
+
+  const folder = await drive.files.create({
+    requestBody: {
+      name: safeName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    },
+    supportsAllDrives: true,
+    fields: 'id',
+  });
+
+  return folder.data.id!;
 }
 
 export default async (request: Request, _context: Context) => {
@@ -68,6 +100,11 @@ export default async (request: Request, _context: Context) => {
 
     const drive = getDriveClient();
 
+    // Upload into a per-system subfolder if a system name was provided
+    const targetFolderId = body.systemName
+      ? await getOrCreateSubfolder(drive, folderId, body.systemName)
+      : folderId;
+
     // Build a readable stream from the buffer for the googleapis upload
     const uploadStream = new Readable();
     uploadStream.push(buffer);
@@ -76,23 +113,30 @@ export default async (request: Request, _context: Context) => {
     const file = await drive.files.create({
       requestBody: {
         name: filename,
-        parents: [folderId],
+        parents: [targetFolderId],
       },
       media: {
         mimeType,
         body: uploadStream,
       },
       fields: 'id,webViewLink',
+      supportsAllDrives: true,
     });
 
     const fileId = file.data.id!;
 
-    // Make the file viewable by anyone with the link
-    // (staff don't need a Google account; URLs land in the Sheet as clickable links)
-    await drive.permissions.create({
-      fileId,
-      requestBody: { type: 'anyone', role: 'reader' },
-    });
+    // Make the file viewable by anyone with the link.
+    // This may be blocked by Google Workspace org policy — if so, we continue
+    // anyway; the file is still uploaded and accessible to the folder owner.
+    try {
+      await drive.permissions.create({
+        fileId,
+        requestBody: { type: 'anyone', role: 'reader' },
+        supportsAllDrives: true,
+      });
+    } catch (permErr) {
+      console.warn('Could not set public permissions (Workspace policy may restrict this):', permErr instanceof Error ? permErr.message : permErr);
+    }
 
     return new Response(JSON.stringify({
       success: true,

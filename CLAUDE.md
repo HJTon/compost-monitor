@@ -69,8 +69,11 @@ netlify/
     compost-sheets-write.ts     ← Append new entry row to Google Sheet
     compost-sheets-read.ts      ← Read raw sheet data
     compost-sheets-history.ts   ← Parse & return last N entries for a system
-    compost-media-upload.ts     ← Upload photo/video to Netlify Blobs
+    compost-media-upload.ts     ← Upload photo/video to Netlify Blobs (daily entries) / Drive (build photos)
     compost-media-serve.ts      ← Serve media from Netlify Blobs
+    compost-media-list.ts       ← List photos in a build's Drive subfolder
+    compost-media-index.ts      ← Manage the `Media` sheet tab (slot assignments, captions, transforms)
+    compost-build-info.ts       ← Manage the `Build Info` sheet tab (notes + summary per build)
     compost-weather.ts          ← Fetch weather from Open-Meteo API
 
 src/
@@ -80,15 +83,24 @@ src/
   pages/
     DashboardPage.tsx           ← All systems overview, kill cycle status
     SystemDetailPage.tsx        ← Per-system chart + recent entries
+    SystemAnalysePage.tsx       ← "Let's Analyse": narrative report with paired data + photos
+    PrintReportPage.tsx         ← Print-optimised layout at `/analyse/:id/print` (auto-fires window.print)
     DailyEntryPage.tsx          ← Data entry form (probe temps, weather, etc.)
     HistoryPage.tsx             ← Browse entries by date
-    LandingPage.tsx             ← App intro/install prompt
+    LandingPage.tsx             ← App intro/install prompt (Settings icon top-right)
   components/
     Header.tsx
     Button.tsx
     MediaCapture.tsx            ← Photo/video capture
     TempGrid.tsx                ← 3×3 grid input for 9 probe temps
     TempStepper.tsx             ← Sequential stepper input (alternative)
+    SaveConfirmModal.tsx        ← Pre-save confirmation for out-of-range / skipped probes
+    BuildDescription.tsx        ← Pile description: build type + editable notes + summary
+    PhotoGallery.tsx            ← Slideshow + lightbox for a slot's photos (click menu: caption / frame / remove)
+    PhotoSlot.tsx               ← Wraps PhotoGallery with add/remove/caption/transform handlers
+    InlinePhotoSlot.tsx         ← Self-fetching single-slot component for inline use
+    DrivePicker.tsx             ← Modal to pick existing Drive photos or upload new ones
+    FrameEditor.tsx             ← Non-destructive pan/zoom editor; saves {fx, fy, zoom}
   services/
     db.ts                       ← All IndexedDB CRUD operations
     syncService.ts              ← Sync queue management, retry logic
@@ -135,6 +147,13 @@ Each system has its own sheet tab. Column layout:
 
 The app **writes** via `compost-sheets-write` and **reads history** via `compost-sheets-history`.
 
+Two additional shared tabs (auto-created on first write):
+- **`Media`** — per-slot photo assignments for every build (see "Let's Analyse" section below)
+- **`Build Info`** — per-build notes + summary (see "Let's Analyse" section below)
+
+### Settings location
+The Settings page is opened from the **landing page** (gear icon top-right), not from the Dashboard. Active-system toggling lives on the Manage page, not in Settings.
+
 ### Data flow
 1. User saves entry → IndexedDB + sync queue
 2. If online → immediate sync to Google Sheets
@@ -153,6 +172,11 @@ The app **writes** via `compost-sheets-write` and **reads history** via `compost
 - `getEntryForSystemDate(systemId, date)` — single entry lookup
 - `syncNow()` — manually trigger sync
 - `settings`, `updateSettings()`
+- `allSystems`, `getSystem(id)` — hardcoded `COMPOST_SYSTEMS` merged with custom builds
+- `addCustomSystem(sys)` / `updateCustomSystem(sys)` / `removeCustomSystem(id)` — CRUD for custom builds in IndexedDB (state updates immediately)
+- `setSystemActive(id, active)` — toggle a build's active flag
+
+> Note: `getSystem` prefers hardcoded definitions over custom entries with the same id. Editable per-build settings (dimensions, probe count, etc.) only persist through a reload for custom builds.
 
 ---
 
@@ -178,12 +202,76 @@ DailyEntry {
 
 ---
 
+## Let's Analyse — narrative report
+
+The `SystemAnalysePage` at `/analyse/:systemId` is a desktop-first "story of this pile" view. Data sections (Composition, Readiness Check, Soil, Harvest, etc.) sit on the left; photos of the same subject sit on the right (2-column on desktop via `md:grid-cols-2`, stacks on mobile).
+
+### Build description (top of page)
+`BuildDescription` shows the build type badge + meta chips (probe count, dimensions, mulch bins) and provides two editable textareas — **Build notes** (freeform story of the build) and **Summary** (plain-language wrap-up; will get AI-assistant predictions in future). Saved per-system to the `Build Info` sheet tab via `compost-build-info.ts`.
+
+### Photo slots
+Fixed slots are defined in `src/utils/photoSlots.ts`:
+- `hero` — lead photo
+- `start` — the build being made
+- `readiness` — readiness check
+- `quality` — compost quality / lab
+- `soil` — soil performance
+- `harvest` — harvest / outcome
+
+Photos are stored in **Google Drive** per-build subfolders (same folder tree as daily-entry uploads; folder name matches `system.name`). Slot assignments, captions, and pan/zoom transforms are tracked in a **`Media` sheet tab**:
+
+| System | Slot | Order | FileId | ThumbnailUrl | WebViewLink | MimeType | Caption | Date | AddedAt | Transform |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+The `Transform` column holds JSON `{fx, fy, zoom}` (0..1 focal-point coords + zoom factor); `FrameEditor` writes it, `PhotoGallery` applies it via CSS `object-position` + `scale()` — the Drive file is never modified.
+
+### Components
+- **`DrivePicker`** — modal with Pick/Upload tabs, shows aspect-ratio-preserving thumbnails with Portrait/Landscape badges
+- **`PhotoGallery`** — slideshow with dots, lightbox, per-photo kebab menu (Edit caption / Adjust frame / Remove). Portrait photos (aspect < 0.95) are detected via `onLoad` and capped at `max-h-[70vh]`.
+- **`PhotoSlot` / `InlinePhotoSlot`** — slot wrappers; `InlinePhotoSlot` self-fetches and is used throughout `SystemAnalysePage`
+- **`FrameEditor`** — pointer-drag focal point + 1×–4× zoom slider
+
+### Print / Save as PDF
+`/analyse/:systemId/print` (`PrintReportPage`) renders all slots stacked (no slideshow), `loading="eager"`, with `@page {size: A4; margin: 14mm}` and `break-inside-avoid`. Auto-calls `window.print()` after 800ms.
+
+### Public view
+Routes under `/view/:systemId` set `isPublicView = true` — photo editing controls and CSV import are hidden, textareas are read-only.
+
+---
+
 ## Kill cycle logic
 
 - **Threshold:** 131°F (55°C) — `KILL_TEMP_F` in `config.ts`
 - **Required:** 3 consecutive days above threshold — `KILL_DAYS_REQUIRED`
 - Kill cycle streaks are calculated from `peakTemp` in `SystemDetailPage`
 - Temperature colour coding: cold (< 100°F) → warm (100–130°F) → hot (131–160°F) → danger (> 160°F)
+
+---
+
+## Guardrails (Let's Measure)
+
+Extreme / skipped temperature readings are caught at two points by the same `SaveConfirmModal` component.
+
+**Limits:**
+- **Upper:** `TEMP_UPPER_LIMIT_F` = 200°F (fixed)
+- **Lower (daily entries):** `getTempLowerLimitF(ambientMaxC)` = `max(50, round(ambientMaxF))` — uses the entry's own ambient max so cold days keep the 50°F floor and warm days lift it to roughly ambient
+- **Lower (samples):** fixed `TEMP_ABSOLUTE_LOWER_F` = 50°F (no ambient context on the sample form)
+
+**Per-probe check — fires during entry, as soon as an extreme reading is committed:**
+- `TempStepper` / `TempGrid` expose an `onProbeCommit(probeIndex)` callback
+- Stepper fires on Next / Prev / dot-tap (for the probe being left); grid fires on `blur` and Enter
+- `SampleEntryPage` fires on blur of the Temp input
+- Modal copy: title "Check this reading", primary "Let me fix it" (clears the value), secondary "Yes, keep it"
+- Confirmed values are tracked in a `Map<probeIndex, value>` (daily) or `Map<sampleId, tempString>` (samples) so they won't get re-flagged
+- Changing a confirmed value invalidates the confirmation — the guardrail re-runs on the next commit
+
+**Save-time check — catches everything still unresolved:**
+- Skipped probes (daily: any `value === null`; samples: row with a probe label but blank temp) — flagged only here since "skipped" isn't knowable mid-entry
+- Any out-of-range value that wasn't already user-confirmed per-probe
+- Modal copy: title "Hold on — before you save", primary "Go back and edit", secondary "Save anyway"
+- On daily entries with skipped probes, a small bottom link offers to navigate to `/manage/:systemId` to reduce the probe count
+
+Builds can have their probe count adjusted at any time via the "Probes" panel on the build detail page — the change applies to future readings only; past sheet rows keep their original probe columns.
 
 ---
 

@@ -20,7 +20,7 @@ const SYSTEM_TAB_MAP: Record<string, string> = {
   'cylinder-1': 'Cylinder #1',
   'cylinder-2': 'Cylinder #2',
   'cylinder-3': 'Cylinder #3',
-  'batch-1': 'Batch 1 ',
+  'batch-1': 'Batch 1',
   'batch-2': 'Batch 2',
   'batch-3': 'Batch 3',
 };
@@ -48,8 +48,31 @@ function colLetter(index: number): string {
   return letter;
 }
 
+async function ensureSheetTab(sheets: ReturnType<typeof getGoogleSheetsClient>, spreadsheetId: string, tabName: string, probeCount: number): Promise<void> {
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const exists = spreadsheet.data.sheets?.some((s: any) => s.properties?.title === tabName);
+  if (exists) return;
+
+  // Create the tab
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] },
+  });
+
+  // Write headers
+  const probeHeaders = Array.from({ length: probeCount }, (_, i) => `Probe ${i + 1}`);
+  const headers = ['Date', 'Time', 'Weather', 'Amb Min', 'Amb Max', 'Moisture', 'Odour', ...probeHeaders, 'Average', 'Peak', 'Vent Temps', 'Visual Notes', 'General Notes', 'Media Links'];
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${tabName}'!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [headers] },
+  });
+}
+
 interface WriteRequest {
   tab: string;
+  probeCount?: number;  // optional override — used for custom systems with non-9 probes
   date: string;
   time: string;
   weather: string | null;
@@ -62,6 +85,10 @@ interface WriteRequest {
   visualNotes: string;
   generalNotes: string;
   mediaLinks: string[];  // Drive webViewLink URLs (empty if no photos)
+  height?: number | null; // pile height in cm
+  turn?: boolean;         // whether this entry marks a turn
+  newWidth?: number | null;  // new bay width in cm (after turn)
+  newLength?: number | null; // new bay length in cm (after turn)
 }
 
 export default async (request: Request, _context: Context) => {
@@ -120,6 +147,12 @@ export default async (request: Request, _context: Context) => {
 
     const sheets = getGoogleSheetsClient();
 
+    // probeCount: use explicit override (for custom systems) or fall back to lookup
+    const resolvedProbeCount = body.probeCount || getProbeCount(body.tab);
+
+    // Create tab with headers if it doesn't exist yet
+    await ensureSheetTab(sheets, spreadsheetId, sheetTab, resolvedProbeCount);
+
     // Append the row
     const appendResult = await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -138,7 +171,7 @@ export default async (request: Request, _context: Context) => {
       const match = updatedRange.match(/!.*?(\d+)/);
       if (match) {
         const rowNum = match[1];
-        const probeCount = getProbeCount(body.tab);
+        const probeCount = resolvedProbeCount;
         // Row layout: Date(A), Time(B), Weather(C), AmbMin(D), AmbMax(E), Moisture(F), Odour(G), Probes(H...)
         // First probe col = H (index 7), last probe col = H + probeCount - 1
         const firstProbeCol = colLetter(7); // H
@@ -157,6 +190,78 @@ export default async (request: Request, _context: Context) => {
             values: [[avgFormula, peakFormula]],
           },
         });
+
+        // Write height, turn, width, length if any are present
+        const needsHeaderScan = body.height != null || body.turn || body.newWidth != null || body.newLength != null;
+        if (needsHeaderScan) {
+          // Read header rows once for all column lookups
+          const headerRes = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `'${sheetTab}'!A1:AZ5`,
+          });
+          const headerRows = headerRes.data.values || [];
+
+          const findCol = (keyword: string): number => {
+            for (const hRow of headerRows) {
+              const idx = (hRow || []).findIndex((c: string) => (c || '').toLowerCase().trim().includes(keyword));
+              if (idx >= 0) return idx;
+            }
+            return -1;
+          };
+
+          // Write height
+          if (body.height != null) {
+            const heightColIdx = findCol('height');
+            if (heightColIdx >= 0) {
+              await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `'${sheetTab}'!${colLetter(heightColIdx)}${rowNum}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[body.height]] },
+              });
+            }
+          }
+
+          // Write Turn marker
+          if (body.turn) {
+            const turnColIdx = findCol('turn');
+            if (turnColIdx >= 0) {
+              await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `'${sheetTab}'!${colLetter(turnColIdx)}${rowNum}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [['Yes']] },
+              });
+            }
+          }
+
+          // Write new width
+          if (body.newWidth != null) {
+            const widthColIdx = findCol('width');
+            if (widthColIdx >= 0) {
+              await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `'${sheetTab}'!${colLetter(widthColIdx)}${rowNum}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[body.newWidth]] },
+              });
+            }
+          }
+
+          // Write new length
+          if (body.newLength != null) {
+            let lengthColIdx = findCol('length');
+            if (lengthColIdx < 0) lengthColIdx = findCol('lenth'); // handle typo in some sheets
+            if (lengthColIdx >= 0) {
+              await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `'${sheetTab}'!${colLetter(lengthColIdx)}${rowNum}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: { values: [[body.newLength]] },
+              });
+            }
+          }
+        }
       }
     }
 

@@ -1,3 +1,17 @@
+export type BuildShape = 'cuboid' | 'cylinder';
+
+export interface BuildDimensions {
+  shape: BuildShape;
+  /** Length in cm (cuboid only) */
+  lengthCm?: number;
+  /** Width in cm (cuboid only) */
+  widthCm?: number;
+  /** Diameter at widest point in cm (cylinder only) */
+  diameterCm?: number;
+  /** Initial height in cm */
+  heightCm?: number;
+}
+
 export interface CompostSystem {
   id: string;
   name: string;
@@ -5,6 +19,14 @@ export interface CompostSystem {
   sheetTab: string;
   active: boolean;
   probeLabels: string[];
+  /** Build type e.g. "Standard Johnson Su" */
+  buildType?: string;
+  /** Number of wheelie bins of mulch added */
+  mulchBins?: number;
+  /** Mulch type e.g. "fine", "medium", "chunky" */
+  mulchType?: string;
+  /** Shape and initial dimensions for volume calculation */
+  dimensions?: BuildDimensions;
 }
 
 export interface ProbeReading {
@@ -15,7 +37,7 @@ export interface ProbeReading {
 
 export type WeatherCondition = 'Sunny' | 'Cloudy' | 'Overcast' | 'Rain' | 'Wind' | 'Frost' | 'Fog' | 'Storm';
 export type MoistureLevel = 'Dry' | 'Good' | 'Wet';
-export type OdourLevel = 'None' | 'Mild' | 'Strong';
+export type OdourLevel = '1' | '2' | '3' | '4' | '5';
 export type TempEntryMode = 'stepper' | 'grid';
 
 export interface DailyEntry {
@@ -34,6 +56,14 @@ export interface DailyEntry {
   probes: ProbeReading[];
   averageTemp: number | null;
   peakTemp: number | null;
+  /** Pile height in cm — optional, prompted every 2 weeks */
+  height: number | null;
+  /** Whether this entry marks a turn */
+  turn?: boolean;
+  /** New bay width in cm — recorded when turn changes dimensions */
+  newWidth?: number | null;
+  /** New bay length in cm — recorded when turn changes dimensions */
+  newLength?: number | null;
   killCycleDays: number;
   ventTemps: string;
   visualNotes: string;
@@ -97,6 +127,69 @@ export interface AppSettings {
   farmLatitude: number;
   farmLongitude: number;
   lastSyncTime: string | null;
+  /** User-defined build types (dropdown options) */
+  customBuildTypes?: string[];
+  /** User-defined mulch types (dropdown options) */
+  customMulchTypes?: string[];
+}
+
+export interface ContaminationRecord {
+  id: string;
+  businessName: string;
+  binSerial: string;
+  collectionDate: string;
+  photoBase64: string | null;
+  reportedAt: string;
+}
+
+export interface BusinessInfo {
+  /** The business name as it appears in Bin Tracker "Content from" */
+  name: string;
+  /** 'business' or 'event' — defaults to 'business' */
+  category: 'business' | 'event';
+  /** Category of business e.g. Cafe, Hotel, Office, Restaurant */
+  businessType: string;
+  /** Type of waste this business produces e.g. Food scraps, Coffee grounds */
+  wasteType: string;
+  /** Hidden from the list (soft-deleted to clean up duplicates/misspellings) */
+  hidden?: boolean;
+  /** Contamination incidents */
+  contaminations: ContaminationRecord[];
+}
+
+export interface ReadinessResults {
+  bacterialBiomass: number | null;
+  bacterialStdDev: number | null;
+  bacterialStdDevPct: number | null;
+  actinobacterialBiomass: number | null;
+  actinobacterialStdDev: number | null;
+  fungalBiomass: number | null;
+  fungalStdDev: number | null;
+  fungalStdDevPct: number | null;
+  fungalDiameter: number | null;
+  fbRatio: number | null;
+  totalProtozoa: number | null;
+  flagellates: number | null;
+  flagellatesStdDev: number | null;
+  amoebae: number | null;
+  amoebaeStdDev: number | null;
+  bacterialFeedingNematodes: number | null;
+  fungalFeedingNematodes: number | null;
+  predatoryNematodes: number | null;
+  // Detrimental
+  oomycetesBiomass: number | null;
+  ciliates: number | null;
+  ciliatesStdDev: number | null;
+  rootFeedingNematodes: number | null;
+}
+
+export interface ReadinessCheck {
+  id: string;
+  systemId: string;
+  date: string; // YYYY-MM-DD
+  label?: string; // optional label e.g. "Pre-turn", "Final"
+  results: ReadinessResults;
+  createdAt: string;
 }
 
 export interface SheetRowData {
