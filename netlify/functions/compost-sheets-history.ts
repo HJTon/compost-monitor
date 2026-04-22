@@ -36,7 +36,8 @@ const OBSERVATION_KEYS: Array<{ header: string; key: string }> = [
   { header: 'mites',       key: 'mites' },
   { header: 'birds',       key: 'birds' },
   { header: 'rats',        key: 'rats' },
-  { header: 'inky caps',   key: 'inkyCaps' },
+  { header: 'ink caps',    key: 'inkyCaps' },
+  { header: 'inky caps',   key: 'inkyCaps' }, // legacy spelling
   { header: 'mushrooms',   key: 'mushrooms' },
   { header: 'fungus',      key: 'fungus' },
   { header: 'seedlings',   key: 'seedlings' },

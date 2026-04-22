@@ -14,7 +14,12 @@ const EXCLUDED_TABS = new Set([
 
 const OBSERVATION_HEADERS = [
   'Fruit Flies', 'Flies', 'Mites', 'Birds', 'Rats',
-  'Inky Caps', 'Mushrooms', 'Fungus', 'Seedlings',
+  'Ink Caps', 'Mushrooms', 'Fungus', 'Seedlings',
+];
+
+// Legacy → current header renames. Detected case-insensitively.
+const HEADER_RENAMES: Array<[string, string]> = [
+  ['inky caps', 'Ink Caps'],
 ];
 
 function getGoogleSheetsClient() {
@@ -69,27 +74,36 @@ export default async (req: Request, _context: Context) => {
     const batch = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges });
     const headers = batch.data.valueRanges || [];
 
-    const results: Array<{ tab: string; added: string[]; alreadyHad: string[] }> = [];
+    const results: Array<{ tab: string; added: string[]; alreadyHad: string[]; renamed?: Array<{ from: string; to: string }> }> = [];
 
     for (let i = 0; i < tabs.length; i++) {
       const tab = tabs[i];
       const row = (headers[i]?.values?.[0] || []) as string[];
-      const lower = row.map(c => (c || '').toLowerCase().trim());
-
-      const added: string[] = [];
-      const alreadyHad: string[] = [];
       const newHeaders: string[] = [...row];
+      const renamed: Array<{ from: string; to: string }> = [];
 
-      for (const h of OBSERVATION_HEADERS) {
-        if (lower.includes(h.toLowerCase())) {
-          alreadyHad.push(h);
-        } else {
-          newHeaders.push(h);
-          added.push(h);
+      // 1. Apply legacy renames in-place
+      for (let c = 0; c < newHeaders.length; c++) {
+        const cellLower = (newHeaders[c] || '').toLowerCase().trim();
+        for (const [from, to] of HEADER_RENAMES) {
+          if (cellLower === from) {
+            renamed.push({ from: newHeaders[c], to });
+            newHeaders[c] = to;
+            break;
+          }
         }
       }
 
-      if (added.length > 0) {
+      // 2. Recompute lowercase after renames and find missing observation cols
+      const lower = newHeaders.map(c => (c || '').toLowerCase().trim());
+      const added: string[] = [];
+      const alreadyHad: string[] = [];
+      for (const h of OBSERVATION_HEADERS) {
+        if (lower.includes(h.toLowerCase())) alreadyHad.push(h);
+        else { newHeaders.push(h); added.push(h); }
+      }
+
+      if (added.length > 0 || renamed.length > 0) {
         const endCol = colLetter(newHeaders.length - 1);
         await sheets.spreadsheets.values.update({
           spreadsheetId,
@@ -98,7 +112,7 @@ export default async (req: Request, _context: Context) => {
           requestBody: { values: [newHeaders] },
         });
       }
-      results.push({ tab, added, alreadyHad });
+      results.push({ tab, added, alreadyHad, renamed } as { tab: string; added: string[]; alreadyHad: string[]; renamed?: Array<{ from: string; to: string }> });
     }
 
     return new Response(JSON.stringify({ ok: true, tabsScanned: tabs.length, results }), {

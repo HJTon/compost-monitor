@@ -149,7 +149,7 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
               'Mites':       entry.observations.mites      || 0,
               'Birds':       entry.observations.birds      || 0,
               'Rats':        entry.observations.rats       || 0,
-              'Inky Caps':   entry.observations.inkyCaps   || 0,
+              'Ink Caps':    entry.observations.inkyCaps   || 0,
               'Mushrooms':   entry.observations.mushrooms  || 0,
               'Fungus':      entry.observations.fungus     || 0,
               'Seedlings':   entry.observations.seedlings  || 0,

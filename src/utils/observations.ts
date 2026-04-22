@@ -31,8 +31,8 @@ export const OBSERVATIONS: ObservationDef[] = [
   { key: 'rats',       sheetHeader: 'Rats',        label: 'Rats',        icon: '🐀', category: 'wildlife',
     aliases: ['rats', 'rat', 'rodent', 'rodents'] },
   // Plant / fungi
-  { key: 'inkyCaps',   sheetHeader: 'Inky Caps',   label: 'Inky caps',   icon: '🌰', category: 'plantfungi',
-    aliases: ['inky caps', 'inky cap', 'inkycap', 'coprinus'] },
+  { key: 'inkyCaps',   sheetHeader: 'Ink Caps',    label: 'Ink caps',    icon: '🎩', category: 'plantfungi',
+    aliases: ['ink caps', 'ink cap', 'inkcap', 'inky caps', 'inky cap', 'inkycap', 'coprinus'] },
   { key: 'mushrooms',  sheetHeader: 'Mushrooms',   label: 'Mushrooms',   icon: '🍄', category: 'plantfungi',
     aliases: ['mushrooms', 'mushroom'] },
   { key: 'fungus',     sheetHeader: 'Fungus',      label: 'Fungus',      icon: '🍂', category: 'plantfungi',

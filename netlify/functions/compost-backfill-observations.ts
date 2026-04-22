@@ -28,7 +28,7 @@ const OBSERVATIONS: ObsDef[] = [
   { key: 'mites',      sheetHeader: 'Mites',       aliases: ['mites', 'mite'] },
   { key: 'birds',      sheetHeader: 'Birds',       aliases: ['birds', 'bird'] },
   { key: 'rats',       sheetHeader: 'Rats',        aliases: ['rats', 'rat', 'rodent', 'rodents'] },
-  { key: 'inkyCaps',   sheetHeader: 'Inky Caps',   aliases: ['inky caps', 'inky cap', 'inkycap', 'coprinus'] },
+  { key: 'inkyCaps',   sheetHeader: 'Ink Caps',    aliases: ['ink caps', 'ink cap', 'inkcap', 'inky caps', 'inky cap', 'inkycap', 'coprinus'] },
   { key: 'mushrooms',  sheetHeader: 'Mushrooms',   aliases: ['mushrooms', 'mushroom'] },
   { key: 'fungus',     sheetHeader: 'Fungus',      aliases: ['fungus', 'fungi', 'mycelium', 'hyphae'] },
   { key: 'seedlings',  sheetHeader: 'Seedlings',   aliases: ['seedlings', 'seedling', 'sprouts', 'sprouting'] },

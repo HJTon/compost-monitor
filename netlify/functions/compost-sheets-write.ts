@@ -95,7 +95,7 @@ interface WriteRequest {
 
 const OBSERVATION_HEADERS = [
   'Fruit Flies', 'Flies', 'Mites', 'Birds', 'Rats',
-  'Inky Caps', 'Mushrooms', 'Fungus', 'Seedlings',
+  'Ink Caps', 'Mushrooms', 'Fungus', 'Seedlings',
 ];
 
 export default async (request: Request, _context: Context) => {
