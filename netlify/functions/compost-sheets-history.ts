@@ -27,7 +27,20 @@ interface ParsedEntry {
   ventTemps: string;
   visualNotes: string;
   generalNotes: string;
+  observations?: Record<string, number>;
 }
+
+const OBSERVATION_KEYS: Array<{ header: string; key: string }> = [
+  { header: 'fruit flies', key: 'fruitFlies' },
+  { header: 'flies',       key: 'flies' },
+  { header: 'mites',       key: 'mites' },
+  { header: 'birds',       key: 'birds' },
+  { header: 'rats',        key: 'rats' },
+  { header: 'inky caps',   key: 'inkyCaps' },
+  { header: 'mushrooms',   key: 'mushrooms' },
+  { header: 'fungus',      key: 'fungus' },
+  { header: 'seedlings',   key: 'seedlings' },
+];
 
 // Detect probe count from the header row by counting columns between
 // the last fixed column (Odour, col index 6) and the Average column.
@@ -72,6 +85,8 @@ interface ColMap {
   ventCol: number;
   visualCol: number;
   generalCol: number;
+  /** Mapping of observation key → column index. Missing keys = column absent. */
+  observationCols: Partial<Record<string, number>>;
 }
 
 function detectColumns(headerRow: string[], probeCount: number): ColMap {
@@ -106,6 +121,13 @@ function detectColumns(headerRow: string[], probeCount: number): ColMap {
     if (noteIdx >= 0) generalCol = noteIdx;
   }
 
+  // Observation columns — matched by header name
+  const observationCols: Partial<Record<string, number>> = {};
+  for (const { header, key } of OBSERVATION_KEYS) {
+    const idx = h.findIndex(c => c === header);
+    if (idx >= 0) observationCols[key] = idx;
+  }
+
   return {
     avgCol,
     peakCol,
@@ -117,6 +139,7 @@ function detectColumns(headerRow: string[], probeCount: number): ColMap {
     ventCol: ventIdx >= 0 ? ventIdx : peakCol + 1,
     visualCol,
     generalCol,
+    observationCols,
   };
 }
 
@@ -142,6 +165,17 @@ function parseRow(row: string[], probeCount: number, cols: ColMap): ParsedEntry 
     return isNaN(n) ? null : n;
   };
 
+  // Observations: read each column into an integer intensity if > 0
+  let observations: Record<string, number> | undefined;
+  for (const [key, idx] of Object.entries(cols.observationCols)) {
+    if (idx === undefined) continue;
+    const v = parseNum(row[idx]);
+    if (v !== null && v > 0) {
+      if (!observations) observations = {};
+      observations[key] = Math.round(v);
+    }
+  }
+
   const turnVal = cols.turnCol !== null ? (row[cols.turnCol] || '').trim().toLowerCase() : '';
   // Match "turn", "turn 1", "turn 2", "turns", "yes", "y", "true", or any non-empty value in the turn column
   const isTurn = turnVal !== '' && (turnVal.startsWith('turn') || turnVal === 'yes' || turnVal === 'y' || turnVal === 'true');
@@ -163,6 +197,7 @@ function parseRow(row: string[], probeCount: number, cols: ColMap): ParsedEntry 
     ventTemps: row[cols.ventCol] || '',
     visualNotes: row[cols.visualCol] || '',
     generalNotes: row[cols.generalCol] || '',
+    observations,
   };
 }
 

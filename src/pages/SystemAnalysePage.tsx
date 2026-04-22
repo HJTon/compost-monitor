@@ -13,6 +13,7 @@ import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
 import { parseReadinessCSV, extractDateFromFilename, getReadinessSummary } from '@/utils/readinessParser';
 import type { ReadinessCheck } from '@/types';
+import { WILDLIFE_OBS, PLANTFUNGI_OBS, intensitySuffix } from '@/utils/observations';
 
 function fToC(f: number | null): number | null {
   if (f === null) return null;
@@ -32,6 +33,8 @@ interface SheetEntry {
   ambientMin?: number | null;
   /** Ambient max (°C) as recorded in the sheet */
   ambientMax?: number | null;
+  /** Observation intensities keyed by ObservationKey, 1..4 */
+  observations?: Record<string, number>;
 }
 
 function cToF(c: number | null | undefined): number | null {
@@ -54,6 +57,8 @@ interface ChartPoint {
   /** Ambient min/max stored in °F for display consistency; converted in useCelsius branch */
   ambientMinF: number | null;
   ambientMaxF: number | null;
+  /** Observations keyed by ObservationKey, intensity 1..4. Only on real-data days. */
+  observations?: Record<string, number>;
 }
 
 interface CompositionItem {
@@ -95,6 +100,7 @@ function buildContinuousSeries(entries: SheetEntry[]): ChartPoint[] {
       sample: e.sample || existing?.sample || '',
       visualNotes: e.visualNotes || existing?.visualNotes || '',
       generalNotes: e.generalNotes || existing?.generalNotes || '',
+      observations: e.observations || existing?.observations,
     };
     byDay.set(d.getTime(), merged);
   }
@@ -123,6 +129,7 @@ function buildContinuousSeries(entries: SheetEntry[]): ChartPoint[] {
       isEstimate: !known,
       ambientMinF: known ? cToF(known.ambientMin) : null,
       ambientMaxF: known ? cToF(known.ambientMax) : null,
+      observations: known?.observations,
     });
   }
 
@@ -169,7 +176,7 @@ interface TooltipPayloadItem {
   payload: ChartPoint;
 }
 
-function ChartTooltip({ active, payload, label, useCelsius, showAmbient }: { active?: boolean; payload?: TooltipPayloadItem[]; label?: string; useCelsius?: boolean; showAmbient?: boolean }) {
+function ChartTooltip({ active, payload, label, useCelsius, showAmbient, showWildlife, showPlantFungi }: { active?: boolean; payload?: TooltipPayloadItem[]; label?: string; useCelsius?: boolean; showAmbient?: boolean; showWildlife?: boolean; showPlantFungi?: boolean }) {
   if (!active || !payload || !payload.length) return null;
   const point = payload[0].payload;
   const isEst = point.isEstimate;
@@ -195,6 +202,19 @@ function ChartTooltip({ active, payload, label, useCelsius, showAmbient }: { act
       {showAmbient && (ambMax !== null || ambMin !== null) && (
         <div className="mt-0.5 text-sky-700">
           Ambient: {ambMin !== null ? `${ambMin}${unit}` : '—'} / {ambMax !== null ? `${ambMax}${unit}` : '—'}
+        </div>
+      )}
+      {(showWildlife || showPlantFungi) && point.observations && (
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+          {(showWildlife ? WILDLIFE_OBS : []).concat(showPlantFungi ? PLANTFUNGI_OBS : []).map(o => {
+            const v = point.observations?.[o.key];
+            if (!v) return null;
+            return (
+              <span key={o.key} className="text-gray-700">
+                {o.icon} {o.label}<span className="font-bold">{intensitySuffix(v)}</span>
+              </span>
+            );
+          })}
         </div>
       )}
       {!isEst && (point.generalNotes || point.visualNotes) && (
@@ -231,6 +251,8 @@ export function SystemAnalysePage() {
   const [compLoading, setCompLoading] = useState(true);
   const [useCelsius, setUseCelsius] = useState(false);
   const [showAmbient, setShowAmbient] = useState(false);
+  const [showWildlife, setShowWildlife] = useState(false);
+  const [showPlantFungi, setShowPlantFungi] = useState(false);
   const [sheetDimensions, setSheetDimensions] = useState<{ heightCm: number | null; widthCm: number | null; lengthCm: number | null } | null>(null);
 
   // Readiness checks
@@ -528,6 +550,20 @@ export function SystemAnalysePage() {
               >
                 Ambient
               </button>
+              <button
+                onClick={() => setShowWildlife(v => !v)}
+                className={`text-xs px-2.5 py-1 rounded-full font-medium active:scale-95 transition-all ${showWildlife ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-gray-100 text-gray-600'}`}
+                title="Toggle wildlife observation icons"
+              >
+                🐀 Wildlife
+              </button>
+              <button
+                onClick={() => setShowPlantFungi(v => !v)}
+                className={`text-xs px-2.5 py-1 rounded-full font-medium active:scale-95 transition-all ${showPlantFungi ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-600'}`}
+                title="Toggle plant &amp; fungi observation icons"
+              >
+                🍄 Plants/fungi
+              </button>
             </div>
             {!loading && chartData.length > 0 && (
               <span className="text-xs text-gray-400">
@@ -545,7 +581,7 @@ export function SystemAnalysePage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={40} />
                 <YAxis tick={{ fontSize: 11 }} domain={[0, 'auto']} />
-                <Tooltip content={<ChartTooltip useCelsius={useCelsius} showAmbient={showAmbient} />} />
+                <Tooltip content={<ChartTooltip useCelsius={useCelsius} showAmbient={showAmbient} showWildlife={showWildlife} showPlantFungi={showPlantFungi} />} />
                 <ReferenceLine
                   y={killLineValue}
                   stroke="#EF4444"
@@ -639,6 +675,89 @@ export function SystemAnalysePage() {
                 <Line type="monotone" dataKey="peak" stroke="#F59E0B" strokeWidth={2} name="Peak" dot={{ r: chartData.length > 60 ? 0 : 3 }} isAnimationActive={false} />
                 {showAmbient && <Line type="monotone" dataKey="ambientMaxF" stroke="#0EA5E9" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient max" connectNulls isAnimationActive={false} />}
                 {showAmbient && <Line type="monotone" dataKey="ambientMinF" stroke="#38BDF8" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient min" connectNulls isAnimationActive={false} />}
+                {/* Observation overlays — wildlife (rats, flies, birds…) */}
+                {showWildlife && (
+                  <Line
+                    type="monotone"
+                    dataKey="peak"
+                    stroke="none"
+                    strokeWidth={0}
+                    isAnimationActive={false}
+                    dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                      const { cx, cy, index } = props;
+                      if (cx == null || cy == null || index == null) return <g />;
+                      const pt = displayData[index];
+                      if (!pt?.observations) return <g />;
+                      const visible = WILDLIFE_OBS.filter(o => (pt.observations![o.key] ?? 0) > 0);
+                      if (visible.length === 0) return <g />;
+                      const spacing = 16;
+                      const baseY = 14;
+                      const totalWidth = (visible.length - 1) * spacing;
+                      return (
+                        <g key={`wildlife-${index}`}>
+                          <line x1={cx} y1={cy} x2={cx} y2={baseY + 6} stroke="#D97706" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
+                          {visible.map((o, i) => {
+                            const x = cx - totalWidth / 2 + i * spacing;
+                            const intensity = pt.observations![o.key]!;
+                            return (
+                              <g key={o.key}>
+                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle">{o.icon}</text>}
+                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle">{o.icon}</text>}
+                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle">{o.icon}</text>}
+                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle">{o.icon}</text>
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    }}
+                    legendType="none"
+                    name=""
+                    connectNulls
+                  />
+                )}
+                {/* Observation overlays — plants / fungi */}
+                {showPlantFungi && (
+                  <Line
+                    type="monotone"
+                    dataKey="peak"
+                    stroke="none"
+                    strokeWidth={0}
+                    isAnimationActive={false}
+                    dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                      const { cx, cy, index } = props;
+                      if (cx == null || cy == null || index == null) return <g />;
+                      const pt = displayData[index];
+                      if (!pt?.observations) return <g />;
+                      const visible = PLANTFUNGI_OBS.filter(o => (pt.observations![o.key] ?? 0) > 0);
+                      if (visible.length === 0) return <g />;
+                      const spacing = 16;
+                      // Plant/fungi row sits just below wildlife row to avoid overlap
+                      const baseY = showWildlife ? 32 : 14;
+                      const totalWidth = (visible.length - 1) * spacing;
+                      return (
+                        <g key={`plantfungi-${index}`}>
+                          <line x1={cx} y1={cy} x2={cx} y2={baseY + 6} stroke="#059669" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
+                          {visible.map((o, i) => {
+                            const x = cx - totalWidth / 2 + i * spacing;
+                            const intensity = pt.observations![o.key]!;
+                            return (
+                              <g key={o.key}>
+                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle">{o.icon}</text>}
+                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle">{o.icon}</text>}
+                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle">{o.icon}</text>}
+                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle">{o.icon}</text>
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    }}
+                    legendType="none"
+                    name=""
+                    connectNulls
+                  />
+                )}
               </LineChart>
             </ResponsiveContainer>
           ) : (

@@ -142,6 +142,19 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<boolean> {
         turn: entry.turn || false,
         newWidth: entry.newWidth ?? null,
         newLength: entry.newLength ?? null,
+        observations: entry.observations
+          ? {
+              'Fruit Flies': entry.observations.fruitFlies || 0,
+              'Flies':       entry.observations.flies      || 0,
+              'Mites':       entry.observations.mites      || 0,
+              'Birds':       entry.observations.birds      || 0,
+              'Rats':        entry.observations.rats       || 0,
+              'Inky Caps':   entry.observations.inkyCaps   || 0,
+              'Mushrooms':   entry.observations.mushrooms  || 0,
+              'Fungus':      entry.observations.fungus     || 0,
+              'Seedlings':   entry.observations.seedlings  || 0,
+            }
+          : undefined,
       }),
     });
 

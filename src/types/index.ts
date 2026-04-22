@@ -72,6 +72,15 @@ export interface ProbeReading {
 }
 
 export type WeatherCondition = 'Sunny' | 'Cloudy' | 'Overcast' | 'Rain' | 'Wind' | 'Frost' | 'Fog' | 'Storm';
+
+/** Observation intensity: 0 = absent/not recorded; 1 = present; 2 = +; 3 = ++; 4 = +++ */
+export type ObservationIntensity = 0 | 1 | 2 | 3 | 4;
+
+export type ObservationKey =
+  | 'fruitFlies' | 'flies' | 'mites' | 'birds' | 'rats'
+  | 'inkyCaps' | 'mushrooms' | 'fungus' | 'seedlings';
+
+export type Observations = Partial<Record<ObservationKey, ObservationIntensity>>;
 export type MoistureLevel = 'Dry' | 'Good' | 'Wet';
 export type OdourLevel = '1' | '2' | '3' | '4' | '5';
 export type TempEntryMode = 'stepper' | 'grid';
@@ -105,6 +114,8 @@ export interface DailyEntry {
   visualNotes: string;
   generalNotes: string;
   mediaIds: string[];
+  /** Wildlife + plant/fungi observations for this day */
+  observations?: Observations;
   synced: boolean;
   createdAt: string;
   updatedAt: string;

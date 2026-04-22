@@ -89,7 +89,14 @@ interface WriteRequest {
   turn?: boolean;         // whether this entry marks a turn
   newWidth?: number | null;  // new bay width in cm (after turn)
   newLength?: number | null; // new bay length in cm (after turn)
+  /** Observation intensities keyed by header name — e.g. { "Fruit Flies": 2, "Mushrooms": 3 } */
+  observations?: Record<string, number>;
 }
+
+const OBSERVATION_HEADERS = [
+  'Fruit Flies', 'Flies', 'Mites', 'Birds', 'Rats',
+  'Inky Caps', 'Mushrooms', 'Fungus', 'Seedlings',
+];
 
 export default async (request: Request, _context: Context) => {
   if (request.method === 'OPTIONS') {
@@ -243,6 +250,36 @@ export default async (request: Request, _context: Context) => {
         const mediaIdx = findColByTerms('media');
         if (mediaIdx >= 0 && body.mediaLinks.length > 0) {
           await writeCell(mediaIdx, body.mediaLinks.join('\n'));
+        }
+
+        // Observations — auto-extend the header row with any observation
+        // columns that aren't present yet, then write the intensity value.
+        // Stored as an integer (0..4). We only write non-zero values so the
+        // spreadsheet stays visually clean.
+        if (body.observations && Object.keys(body.observations).length > 0) {
+          const presentLower = new Set(hLower);
+          const missing = OBSERVATION_HEADERS.filter(h => !presentLower.has(h.toLowerCase()));
+          let effectiveHeader = pickedHeader;
+          if (missing.length > 0) {
+            // Append missing headers to the END of the header row
+            const startIdx = effectiveHeader.length;
+            const endIdx = startIdx + missing.length - 1;
+            await sheets.spreadsheets.values.update({
+              spreadsheetId,
+              range: `'${sheetTab}'!${colLetter(startIdx)}1:${colLetter(endIdx)}1`,
+              valueInputOption: 'RAW',
+              requestBody: { values: [missing] },
+            });
+            effectiveHeader = [...effectiveHeader, ...missing];
+          }
+          const effLower = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
+          for (const [headerName, intensity] of Object.entries(body.observations)) {
+            if (!intensity || intensity < 1) continue;
+            const idx = effLower.indexOf(headerName.toLowerCase());
+            if (idx >= 0) {
+              await writeCell(idx, intensity);
+            }
+          }
         }
 
         const needsHeaderScan = body.height != null || body.turn || body.newWidth != null || body.newLength != null;

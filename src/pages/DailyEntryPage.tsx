@@ -15,7 +15,8 @@ import {
   getNZDate, getNZTime, KILL_TEMP_F, getTempColor,
   getTempLowerLimitF, TEMP_UPPER_LIMIT_F,
 } from '@/utils/config';
-import type { DailyEntry, WeatherCondition, MoistureLevel, OdourLevel, ProbeReading, MediaItem } from '@/types';
+import type { DailyEntry, WeatherCondition, MoistureLevel, OdourLevel, ProbeReading, MediaItem, Observations } from '@/types';
+import { WILDLIFE_OBS, PLANTFUNGI_OBS, MAX_INTENSITY, intensitySuffix } from '@/utils/observations';
 
 const WEATHER_OPTIONS: WeatherCondition[] = ['Sunny', 'Cloudy', 'Overcast', 'Rain', 'Wind', 'Frost'];
 const MOISTURE_OPTIONS: MoistureLevel[] = ['Dry', 'Good', 'Wet'];
@@ -26,6 +27,53 @@ const ODOUR_OPTIONS: { value: OdourLevel; emoji: string; label: string }[] = [
   { value: '4', emoji: '\u{1F922}', label: 'Strong' },
   { value: '5', emoji: '\u{1F92E}', label: 'Disgusting' },
 ];
+
+function ObservationButton({
+  icon, label, value, onChange,
+}: { icon: string; label: string; value: number; onChange: (v: number) => void }) {
+  const active = value > 0;
+  const suffix = intensitySuffix(value);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(MAX_INTENSITY, value + 1))}
+        className={`w-full aspect-square flex flex-col items-center justify-center rounded-xl border transition-all active:scale-95 ${
+          active
+            ? 'bg-green-50 border-green-primary text-green-primary shadow-sm'
+            : 'bg-gray-50 border-gray-200 text-gray-500'
+        }`}
+      >
+        <div className="relative text-3xl leading-none">
+          {/* Stacked icons — extra copies appear behind, slightly offset */}
+          {value >= 2 && (
+            <span className="absolute -left-2 -top-1 opacity-60">{icon}</span>
+          )}
+          {value >= 3 && (
+            <span className="absolute -right-2 -top-1 opacity-40">{icon}</span>
+          )}
+          {value >= 4 && (
+            <span className="absolute left-0 top-2 opacity-30">{icon}</span>
+          )}
+          <span className="relative">{icon}</span>
+        </div>
+        <div className="text-[11px] font-medium mt-1 leading-tight text-center px-1">
+          {label}{suffix && <span className="ml-0.5 font-bold">{suffix}</span>}
+        </div>
+      </button>
+      {active && (
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          onClick={(e) => { e.stopPropagation(); onChange(Math.max(0, value - 1)); }}
+          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-white border border-gray-300 shadow-sm text-gray-600 text-sm font-bold flex items-center justify-center active:scale-90"
+        >
+          −
+        </button>
+      )}
+    </div>
+  );
+}
 
 function parseHeightDate(s: string): Date | null {
   if (!s) return null;
@@ -636,6 +684,56 @@ export function DailyEntryPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Observations */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-4">
+          <div>
+            <h3 className="font-semibold text-gray-900">Observations</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Tap to log presence · tap again for more (+, ++, +++) · − to undo
+            </p>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Wildlife</div>
+            <div className="grid grid-cols-5 gap-2">
+              {WILDLIFE_OBS.map(o => (
+                <ObservationButton
+                  key={o.key}
+                  icon={o.icon}
+                  label={o.label}
+                  value={(entry.observations?.[o.key]) || 0}
+                  onChange={(v) => {
+                    const next: Observations = { ...(entry.observations || {}) };
+                    if (v <= 0) delete next[o.key];
+                    else next[o.key] = v as 1 | 2 | 3 | 4;
+                    updateEntry({ observations: next });
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Plants &amp; fungi</div>
+            <div className="grid grid-cols-4 gap-2">
+              {PLANTFUNGI_OBS.map(o => (
+                <ObservationButton
+                  key={o.key}
+                  icon={o.icon}
+                  label={o.label}
+                  value={(entry.observations?.[o.key]) || 0}
+                  onChange={(v) => {
+                    const next: Observations = { ...(entry.observations || {}) };
+                    if (v <= 0) delete next[o.key];
+                    else next[o.key] = v as 1 | 2 | 3 | 4;
+                    updateEntry({ observations: next });
+                  }}
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Notes */}
