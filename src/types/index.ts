@@ -12,6 +12,36 @@ export interface BuildDimensions {
   heightCm?: number;
 }
 
+export type BuildPhase = 'thermophilic' | 'maturation' | 'grow';
+
+export interface MaturationInfo {
+  /** Container type e.g. "Volumatic bin", "IBC" */
+  containerType: string;
+  /** Placement: "In-ground", "On-ground", "Above-ground" */
+  placement: string;
+  /** Cover: "Open", "Closed" */
+  coverType: string;
+  /** When maturation phase started (YYYY-MM-DD) */
+  startedAt: string;
+}
+
+export interface GrowTrial {
+  id: string;
+  /** Method e.g. "As mulch", "Top dress", "Trench at side", "Plant directly in" */
+  method: string;
+  /** Crop e.g. "Pumpkin", "Potatoes", "Comfrey" */
+  crop: string;
+  /** Optional free-form notes about the trial */
+  notes?: string;
+  createdAt: string;
+}
+
+export interface GrowInfo {
+  /** When grow phase started (YYYY-MM-DD) */
+  startedAt: string;
+  trials: GrowTrial[];
+}
+
 export interface CompostSystem {
   id: string;
   name: string;
@@ -27,6 +57,12 @@ export interface CompostSystem {
   mulchType?: string;
   /** Shape and initial dimensions for volume calculation */
   dimensions?: BuildDimensions;
+  /** Current phase of the build. Default is 'thermophilic'. */
+  phase?: BuildPhase;
+  /** Maturation-phase metadata — set when phase moves to 'maturation' */
+  maturation?: MaturationInfo;
+  /** Grow-phase metadata — set when phase moves to 'grow' */
+  grow?: GrowInfo;
 }
 
 export interface ProbeReading {
@@ -131,6 +167,16 @@ export interface AppSettings {
   customBuildTypes?: string[];
   /** User-defined mulch types (dropdown options) */
   customMulchTypes?: string[];
+  /** User-defined maturation container types (added to the default list) */
+  customContainerTypes?: string[];
+  /** User-defined maturation placement options (added to the defaults) */
+  customPlacements?: string[];
+  /** User-defined maturation cover options (added to the defaults) */
+  customCoverTypes?: string[];
+  /** User-defined grow-trial methods (added to the defaults) */
+  customTrialMethods?: string[];
+  /** User-defined grow-trial crops (added to the defaults) */
+  customTrialCrops?: string[];
 }
 
 export interface ContaminationRecord {

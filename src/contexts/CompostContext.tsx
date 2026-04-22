@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
-import type { DailyEntry, AppSettings, CompostSystem, BusinessInfo } from '@/types';
+import type { DailyEntry, AppSettings, CompostSystem, BusinessInfo, BuildPhase, MaturationInfo, GrowInfo } from '@/types';
 import type { ToastMessage as ToastMsg } from '@/components/Toast';
 import {
   getAllEntries,
@@ -18,7 +18,7 @@ import {
   deleteBusiness as dbDeleteBusiness,
 } from '@/services/db';
 import { processSyncQueue, getPendingCount, queueEntrySync } from '@/services/syncService';
-import { DEFAULT_SETTINGS, generateId, getNZDate, getNZTime, COMPOST_SYSTEMS } from '@/utils/config';
+import { DEFAULT_SETTINGS, DEFAULT_BUILD_TYPES, generateId, getNZDate, getNZTime, COMPOST_SYSTEMS } from '@/utils/config';
 
 interface CompostContextType {
   entries: DailyEntry[];
@@ -35,6 +35,7 @@ interface CompostContextType {
   updateCustomSystem: (system: CompostSystem) => Promise<void>;
   removeCustomSystem: (id: string) => Promise<void>;
   setSystemActive: (id: string, active: boolean) => Promise<void>;
+  setSystemPhase: (id: string, phase: BuildPhase, patch?: { maturation?: MaturationInfo; grow?: GrowInfo; transitionNote?: string }) => Promise<void>;
 
   // Entry operations
   saveEntry: (entry: DailyEntry) => Promise<void>;
@@ -60,6 +61,10 @@ interface CompostContextType {
   deleteBusiness: (name: string) => Promise<void>;
   refreshBusinesses: () => Promise<void>;
 
+  // Build types (shared across all devices via Google Sheet)
+  buildTypes: string[];
+  addBuildType: (name: string) => Promise<void>;
+
   // Refresh
   refreshEntries: () => Promise<void>;
 }
@@ -75,6 +80,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  const [buildTypes, setBuildTypes] = useState<string[]>(DEFAULT_BUILD_TYPES);
 
   // Merge hardcoded + custom so fields saved via Manage (buildType, dimensions,
   // mulchBins, etc.) augment the hardcoded 11 systems. Custom entries with IDs
@@ -98,6 +104,9 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         mulchType: c.mulchType ?? s.mulchType,
         dimensions: c.dimensions ?? s.dimensions,
         probeLabels: c.probeLabels && c.probeLabels.length > 0 ? c.probeLabels : s.probeLabels,
+        phase: c.phase ?? s.phase,
+        maturation: c.maturation ?? s.maturation,
+        grow: c.grow ?? s.grow,
       };
     });
     return [...merged, ...customMap.values()];
@@ -139,6 +148,133 @@ export function CompostProvider({ children }: { children: ReactNode }) {
       setPendingCount(count);
       setCustomSystems(storedCustomSystems);
       setBusinesses(storedBusinesses);
+
+      // Load phase data from the Build Phases sheet tab (when online)
+      if (navigator.onLine) {
+        try {
+          const res = await fetch('/.netlify/functions/compost-build-phase');
+          if (res.ok) {
+            const data = await res.json();
+            const phases: Array<{ system: string; phase: string; maturation: unknown; grow: unknown }> = data.phases || [];
+            if (phases.length > 0) {
+              // Merge phase data into custom systems (keyed by system name)
+              const byName = new Map(phases.map(p => [p.system, p]));
+              const updated: CompostSystem[] = [];
+              // Hardcoded + already-stored systems may need phase data merged in
+              const knownSystems = [...COMPOST_SYSTEMS, ...storedCustomSystems];
+              const customById = new Map(storedCustomSystems.map(s => [s.id, s]));
+              for (const sys of knownSystems) {
+                const p = byName.get(sys.name);
+                if (!p) continue;
+                const existing = customById.get(sys.id) || { ...sys };
+                const next: CompostSystem = {
+                  ...existing,
+                  phase: (p.phase as BuildPhase) || 'thermophilic',
+                  maturation: (p.maturation as MaturationInfo) || undefined,
+                  grow: (p.grow as GrowInfo) || undefined,
+                };
+                await saveCustomSystem(next);
+                updated.push(next);
+              }
+              if (updated.length > 0) {
+                setCustomSystems(prev => {
+                  const next = [...prev];
+                  for (const u of updated) {
+                    const idx = next.findIndex(s => s.id === u.id);
+                    if (idx === -1) next.push(u);
+                    else next[idx] = u;
+                  }
+                  return next;
+                });
+              }
+            }
+          }
+        } catch {
+          // Phase load failed — use whatever is in IndexedDB
+        }
+      }
+
+      // Load shared build info (mulch, dimensions, buildType, probeLabels) from
+      // the Build Info sheet tab, and push up any local-only data so devices
+      // that have historic entries (e.g. Caroline's mulch amounts) seed the
+      // shared record for everyone else.
+      if (navigator.onLine) {
+        try {
+          const res = await fetch('/.netlify/functions/compost-build-info');
+          if (res.ok) {
+            const data = await res.json();
+            const infos: Array<{
+              system: string; buildType: string; mulchBins: number | null;
+              mulchType: string; dimensions: unknown; probeLabels: string[] | null;
+            }> = data.infos || [];
+            const byName = new Map(infos.map(i => [i.system, i]));
+            const knownSystems = [...COMPOST_SYSTEMS, ...storedCustomSystems];
+            const customById = new Map(storedCustomSystems.map(s => [s.id, s]));
+
+            // 1) Merge sheet → local where sheet has data
+            const merged: CompostSystem[] = [];
+            for (const sys of knownSystems) {
+              const sheetInfo = byName.get(sys.name);
+              if (!sheetInfo) continue;
+              const base = customById.get(sys.id) || { ...sys };
+              const next: CompostSystem = {
+                ...base,
+                buildType: sheetInfo.buildType || base.buildType,
+                mulchBins: sheetInfo.mulchBins ?? base.mulchBins,
+                mulchType: sheetInfo.mulchType || base.mulchType,
+                dimensions: (sheetInfo.dimensions as CompostSystem['dimensions']) || base.dimensions,
+                probeLabels: (sheetInfo.probeLabels && sheetInfo.probeLabels.length > 0)
+                  ? sheetInfo.probeLabels
+                  : base.probeLabels,
+              };
+              if (JSON.stringify(next) !== JSON.stringify(customById.get(sys.id))) {
+                await saveCustomSystem(next);
+                merged.push(next);
+              }
+            }
+            if (merged.length > 0) {
+              setCustomSystems(prev => {
+                const next = [...prev];
+                for (const m of merged) {
+                  const idx = next.findIndex(s => s.id === m.id);
+                  if (idx === -1) next.push(m);
+                  else next[idx] = m;
+                }
+                return next;
+              });
+            }
+
+            // 2) Push local → sheet where local has data and sheet is blank
+            const allCurrent = [...COMPOST_SYSTEMS, ...await getAllCustomSystems()];
+            for (const sys of allCurrent) {
+              const hasLocal = !!(sys.buildType || sys.mulchBins != null || sys.mulchType
+                || sys.dimensions || (sys.probeLabels && sys.probeLabels.length > 0));
+              if (!hasLocal) continue;
+              const sheetInfo = byName.get(sys.name);
+              const sheetHas = !!(sheetInfo && (
+                sheetInfo.buildType || sheetInfo.mulchBins != null || sheetInfo.mulchType
+                || sheetInfo.dimensions
+                || (sheetInfo.probeLabels && sheetInfo.probeLabels.length > 0)
+              ));
+              if (sheetHas) continue;
+              fetch('/.netlify/functions/compost-build-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  system: sys.name,
+                  buildType: sys.buildType || '',
+                  mulchBins: sys.mulchBins ?? null,
+                  mulchType: sys.mulchType || '',
+                  dimensions: sys.dimensions || null,
+                  probeLabels: sys.probeLabels || null,
+                }),
+              }).catch(() => { /* offline retry on next open */ });
+            }
+          }
+        } catch {
+          // Build info load failed — local IndexedDB still works
+        }
+      }
 
       // Auto-discover systems from the spreadsheet (when online)
       if (navigator.onLine) {
@@ -200,6 +336,40 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     }
     init();
   }, []);
+
+  // Fetch shared build types from Google Sheet on mount (falls back to defaults offline)
+  useEffect(() => {
+    if (!navigator.onLine) return;
+    fetch('/.netlify/functions/compost-build-types')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.types && Array.isArray(data.types) && data.types.length > 0) {
+          setBuildTypes(data.types);
+        }
+      })
+      .catch(() => { /* keep defaults */ });
+  }, []);
+
+  const addBuildType = useCallback(async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    // Optimistic update
+    setBuildTypes(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
+    try {
+      const res = await fetch('/.netlify/functions/compost-build-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.types && Array.isArray(data.types)) setBuildTypes(data.types);
+      }
+    } catch (err) {
+      console.warn('Could not sync build type to sheet:', err);
+      addToast('error', 'Could not save new build type — will retry when online');
+    }
+  }, [addToast]);
 
   // Auto-sync when coming online
   useEffect(() => {
@@ -296,6 +466,23 @@ export function CompostProvider({ children }: { children: ReactNode }) {
       next[idx] = system;
       return next;
     });
+
+    // Fire-and-forget push to shared Build Info sheet so every device sees the
+    // same mulch amount, dimensions, probe count, and build type.
+    if (navigator.onLine) {
+      fetch('/.netlify/functions/compost-build-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system: system.name,
+          buildType: system.buildType || '',
+          mulchBins: system.mulchBins ?? null,
+          mulchType: system.mulchType || '',
+          dimensions: system.dimensions || null,
+          probeLabels: system.probeLabels || null,
+        }),
+      }).catch(err => console.warn('Build info sync failed:', err));
+    }
   }, []);
 
   const removeCustomSystem = useCallback(async (id: string) => {
@@ -308,6 +495,49 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     await dbSaveSettings(newSettings);
     setSettings(newSettings);
   }, [settings]);
+
+  const setSystemPhase = useCallback(async (
+    id: string,
+    phase: BuildPhase,
+    patch?: { maturation?: MaturationInfo; grow?: GrowInfo; transitionNote?: string },
+  ) => {
+    const current = allSystems.find(s => s.id === id);
+    if (!current) return;
+
+    const hardcoded = COMPOST_SYSTEMS.find(s => s.id === id);
+    const existingCustom = customSystems.find(s => s.id === id);
+    const base: CompostSystem = existingCustom || { ...(hardcoded || current) };
+
+    const updated: CompostSystem = {
+      ...base,
+      phase,
+      maturation: patch?.maturation ?? (phase === 'thermophilic' ? undefined : base.maturation),
+      grow: patch?.grow ?? (phase === 'grow' ? base.grow : base.grow),
+    };
+
+    await saveCustomSystem(updated);
+    setCustomSystems(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      if (idx === -1) return [...prev, updated];
+      const next = [...prev];
+      next[idx] = updated;
+      return next;
+    });
+
+    // Fire-and-forget sync to Google Sheets
+    fetch('/.netlify/functions/compost-build-phase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: current.name,
+        sheetTab: current.sheetTab,
+        phase,
+        maturation: updated.maturation,
+        grow: updated.grow,
+        transitionNote: patch?.transitionNote || '',
+      }),
+    }).catch(err => console.warn('Phase sync failed:', err));
+  }, [allSystems, customSystems]);
 
   const setSystemActive = useCallback(async (id: string, active: boolean) => {
     const newActiveSystems = active
@@ -413,6 +643,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         updateCustomSystem,
         removeCustomSystem,
         setSystemActive,
+        setSystemPhase,
         saveEntry,
         getEntryForSystemDate,
         getSystemEntries,
@@ -427,6 +658,8 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         saveBusiness,
         deleteBusiness,
         refreshBusinesses,
+        buildTypes,
+        addBuildType,
         refreshEntries,
       }}
     >

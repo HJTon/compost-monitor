@@ -94,6 +94,18 @@ function detectColumns(headerRow: string[], probeCount: number): ColMap {
   const visualIdx = find('visual');
   const generalIdx = find('general');
 
+  // Some sheets (e.g. Pivot #3) have a single "Notes" column rather than
+  // separate Visual/General Notes. If neither was found by name, look for a
+  // standalone "note" column and route it to generalNotes. Never fall back to
+  // positional offsets (e.g. peakCol+2) — some sheets have duplicated Peak Temp
+  // columns from merged-cell headers that would otherwise be read as notes.
+  let visualCol = visualIdx;
+  let generalCol = generalIdx;
+  if (generalCol < 0) {
+    const noteIdx = h.findIndex((c, i) => i !== visualCol && c.includes('note'));
+    if (noteIdx >= 0) generalCol = noteIdx;
+  }
+
   return {
     avgCol,
     peakCol,
@@ -103,9 +115,24 @@ function detectColumns(headerRow: string[], probeCount: number): ColMap {
     turnCol: turnIdx >= 0 ? turnIdx : null,
     sampleCol: sampleIdx >= 0 ? sampleIdx : null,
     ventCol: ventIdx >= 0 ? ventIdx : peakCol + 1,
-    visualCol: visualIdx >= 0 ? visualIdx : peakCol + 2,
-    generalCol: generalIdx >= 0 ? generalIdx : peakCol + 3,
+    visualCol,
+    generalCol,
   };
+}
+
+// Normalise a date cell to YYYY-MM-DD. Sheets sometimes return ISO,
+// sometimes DD/MM/YYYY (NZ locale), sometimes D/M/YYYY. Unparseable values
+// pass through so we never drop rows silently.
+function normaliseDate(raw: string): string {
+  const v = (raw || '').trim();
+  if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) {
+    const [, d, mo, y] = m;
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  return v;
 }
 
 function parseRow(row: string[], probeCount: number, cols: ColMap): ParsedEntry {
@@ -120,7 +147,7 @@ function parseRow(row: string[], probeCount: number, cols: ColMap): ParsedEntry 
   const isTurn = turnVal !== '' && (turnVal.startsWith('turn') || turnVal === 'yes' || turnVal === 'y' || turnVal === 'true');
   const sampleVal = cols.sampleCol !== null ? (row[cols.sampleCol] || '').trim() : '';
   return {
-    date: row[0] || '',
+    date: normaliseDate(row[0] || ''),
     time: row[1] || '',
     weather: row[2] || '',
     ambientMin: parseNum(row[3]),

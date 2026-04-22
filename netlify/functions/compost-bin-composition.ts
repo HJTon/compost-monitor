@@ -5,7 +5,7 @@ import { google } from 'googleapis';
 // 3:2:1 ratio for primary : secondary : tertiary source.
 // When fill-level data is available in future, replace these static weights
 // with actual fill proportions per bin and the rest of the logic stays the same.
-const CONTENT_WEIGHTS = [3, 2, 1];
+const CONTENT_WEIGHTS = [5, 4, 3, 2, 1];
 
 function getWeightsForSources(count: number): number[] {
   if (count === 0) return [];
@@ -70,11 +70,11 @@ export default async (request: Request, _context: Context) => {
     let binCount = 0;
 
     for (const row of dataRows) {
-      const rowSystem = (row[8] || '').toString().trim();
+      const rowSystem = (row[10] || '').toString().trim();
       if (rowSystem.toLowerCase() !== systemName.trim().toLowerCase()) continue;
 
-      // Collect non-empty content sources from columns B, C, D (indices 1, 2, 3)
-      const sources: string[] = [row[1], row[2], row[3]]
+      // Collect non-empty content sources from columns B–F (indices 1–5)
+      const sources: string[] = [row[1], row[2], row[3], row[4], row[5]]
         .map(v => (v || '').toString().trim())
         .filter(v => v !== '');
 

@@ -91,10 +91,10 @@ export default async (request: Request, _context: Context) => {
       (s: any) => s.properties?.title === tabName,
     )?.properties?.sheetId ?? null;
 
-    // Find Bin Tracker rows where col I === buildName
+    // Find Bin Tracker rows where col K === buildName
     const colIResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Bin Tracker'!I:I",
+      range: "'Bin Tracker'!K:K",
     });
     const colIValues = colIResponse.data.values ?? [];
     const affectedIndices: number[] = [];
@@ -106,7 +106,7 @@ export default async (request: Request, _context: Context) => {
 
     const requests: any[] = [];
 
-    // Recolour cols E + I on each matching Bin Tracker row
+    // Recolour cols G + K on each matching Bin Tracker row
     if (binTrackerSheetId != null) {
       for (const rowIndex of affectedIndices) {
         requests.push({
@@ -115,8 +115,8 @@ export default async (request: Request, _context: Context) => {
               sheetId: binTrackerSheetId,
               startRowIndex: rowIndex,
               endRowIndex: rowIndex + 1,
-              startColumnIndex: 4, // col E — bin serial number
-              endColumnIndex: 5,
+              startColumnIndex: 6, // col G — bin serial number
+              endColumnIndex: 7,
             },
             cell: { userEnteredFormat: { backgroundColor: targetColour } },
             fields: 'userEnteredFormat(backgroundColor)',
@@ -128,8 +128,8 @@ export default async (request: Request, _context: Context) => {
               sheetId: binTrackerSheetId,
               startRowIndex: rowIndex,
               endRowIndex: rowIndex + 1,
-              startColumnIndex: 8, // col I — batch name
-              endColumnIndex: 9,
+              startColumnIndex: 10, // col K — batch name
+              endColumnIndex: 11,
             },
             cell: { userEnteredFormat: { backgroundColor: targetColour } },
             fields: 'userEnteredFormat(backgroundColor)',
@@ -162,12 +162,12 @@ export default async (request: Request, _context: Context) => {
       });
     }
 
-    // Also update col F (colour label) on Bin Tracker so Bin Lookup matches
+    // Also update col H (colour label) on Bin Tracker so Bin Lookup matches
     if (affectedIndices.length > 0) {
       const label = normalised;
       const labelUpdates = affectedIndices.map(rowIndex => {
         const sheetRow = rowIndex + 1;
-        return { range: `'Bin Tracker'!F${sheetRow}`, values: [[label]] };
+        return { range: `'Bin Tracker'!H${sheetRow}`, values: [[label]] };
       });
       await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,

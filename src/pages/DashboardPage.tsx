@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Thermometer, CheckCircle, Clock, FlaskConical } from 'lucide-react';
+import { Thermometer, CheckCircle, Clock, FlaskConical, Leaf } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { useCompost } from '@/contexts/CompostContext';
@@ -15,6 +15,7 @@ interface SystemCardData {
   shortName: string;
   lastEntry: DailyEntry | null;
   hasToday: boolean;
+  isMaturation: boolean;
 }
 
 export function DashboardPage() {
@@ -30,7 +31,10 @@ export function DashboardPage() {
   };
 
   useEffect(() => {
-    const activeSystems = allSystems.filter(s => settings.activeSystems.includes(s.id));
+    // Hide grow-phase builds from the Measure screen entirely
+    const activeSystems = allSystems.filter(s =>
+      settings.activeSystems.includes(s.id) && (s.phase || 'thermophilic') !== 'grow'
+    );
 
     const cardData: SystemCardData[] = activeSystems.map(sys => {
       const systemEntries = entries
@@ -46,6 +50,7 @@ export function DashboardPage() {
         shortName: sys.shortName,
         lastEntry,
         hasToday,
+        isMaturation: sys.phase === 'maturation',
       };
     });
 
@@ -99,23 +104,34 @@ export function DashboardPage() {
 
         {/* System cards */}
         <div className="space-y-3">
-          {cards.map(card => (
+          {cards.map(card => {
+            const maturationTint = !isSample && card.isMaturation;
+            return (
             <button
               key={card.systemId}
               onClick={() => navigate(isSample ? `/sample/${card.systemId}` : `/entry/${card.systemId}`)}
               className={`w-full rounded-xl p-4 shadow-sm border text-left active:scale-[0.98] transition-transform ${
                 isSample
                   ? 'bg-white border-blue-100'
-                  : 'bg-white border-gray-100'
+                  : maturationTint
+                    ? 'bg-amber-50 border-amber-200'
+                    : 'bg-white border-gray-100'
               }`}
             >
+              {maturationTint && (
+                <div className="mb-2 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-600 text-white">
+                  <Leaf size={11} /> In Maturation
+                </div>
+              )}
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    isSample ? 'bg-blue-100' : 'bg-green-100'
+                    isSample ? 'bg-blue-100' : maturationTint ? 'bg-amber-100' : 'bg-green-100'
                   }`}>
                     {isSample ? (
                       <FlaskConical size={20} className="text-blue-500" />
+                    ) : maturationTint ? (
+                      <Leaf size={20} className="text-amber-700" />
                     ) : (
                       <Thermometer size={20} className="text-green-primary" />
                     )}
@@ -156,7 +172,8 @@ export function DashboardPage() {
                 )}
               </div>
             </button>
-          ))}
+            );
+          })}
         </div>
 
         {cards.length === 0 && (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Loader2, Sparkles } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import type { CompostSystem } from '@/types';
 
 interface BuildDescriptionProps {
@@ -68,48 +68,13 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
 
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-4">
-      {/* Top: build type + summary probe/volume hints */}
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-          <h3 className="font-semibold text-gray-900">Pile description</h3>
-          {system.buildType && (
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-xs font-medium">
-              {system.buildType}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Meta chips */}
-      <div className="flex flex-wrap gap-1.5 text-xs">
-        <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-600">
-          {system.probeLabels.length} probe{system.probeLabels.length !== 1 ? 's' : ''}
-        </span>
-        {system.dimensions && (
-          <>
-            {system.dimensions.widthCm != null && system.dimensions.lengthCm != null && (
-              <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-600">
-                {system.dimensions.widthCm}×{system.dimensions.lengthCm} cm
-              </span>
-            )}
-            {system.dimensions.diameterCm != null && (
-              <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-600">
-                Ø {system.dimensions.diameterCm} cm
-              </span>
-            )}
-            {system.dimensions.heightCm != null && (
-              <span className="px-2 py-1 rounded-md bg-gray-50 border border-gray-100 text-gray-600">
-                h {system.dimensions.heightCm} cm
-              </span>
-            )}
-          </>
-        )}
-        {system.mulchBins != null && system.mulchBins > 0 && (
-          <span className="px-2 py-1 rounded-md bg-amber-50 border border-amber-100 text-amber-700">
-            {system.mulchBins} bin{system.mulchBins !== 1 ? 's' : ''} mulch{system.mulchType ? ` · ${system.mulchType}` : ''}
+      {system.buildType && (
+        <div className="flex">
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
+            {system.buildType}
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Notes */}
       <div>
@@ -144,10 +109,7 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
       {/* Summary */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
-            Summary
-            <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 font-medium"><Sparkles size={10} /> AI assistant coming soon</span>
-          </label>
+          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Summary</label>
           {justSaved === 'summary' && (
             <span className="text-xs text-green-600 flex items-center gap-1"><Check size={12} /> Saved</span>
           )}

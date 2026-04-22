@@ -95,7 +95,7 @@ src/
     TempGrid.tsx                ← 3×3 grid input for 9 probe temps
     TempStepper.tsx             ← Sequential stepper input (alternative)
     SaveConfirmModal.tsx        ← Pre-save confirmation for out-of-range / skipped probes
-    BuildDescription.tsx        ← Pile description: build type + editable notes + summary
+    BuildDescription.tsx        ← Build-type badge + editable notes + summary
     PhotoGallery.tsx            ← Slideshow + lightbox for a slot's photos (click menu: caption / frame / remove)
     PhotoSlot.tsx               ← Wraps PhotoGallery with add/remove/caption/transform handlers
     InlinePhotoSlot.tsx         ← Self-fetching single-slot component for inline use
@@ -149,7 +149,7 @@ The app **writes** via `compost-sheets-write` and **reads history** via `compost
 
 Two additional shared tabs (auto-created on first write):
 - **`Media`** — per-slot photo assignments for every build (see "Let's Analyse" section below)
-- **`Build Info`** — per-build notes + summary (see "Let's Analyse" section below)
+- **`Build Info`** — per-build shared metadata (see "Build Info sync" section below)
 
 ### Settings location
 The Settings page is opened from the **landing page** (gear icon top-right), not from the Dashboard. Active-system toggling lives on the Manage page, not in Settings.
@@ -176,7 +176,23 @@ The Settings page is opened from the **landing page** (gear icon top-right), not
 - `addCustomSystem(sys)` / `updateCustomSystem(sys)` / `removeCustomSystem(id)` — CRUD for custom builds in IndexedDB (state updates immediately)
 - `setSystemActive(id, active)` — toggle a build's active flag
 
-> Note: `getSystem` prefers hardcoded definitions over custom entries with the same id. Editable per-build settings (dimensions, probe count, etc.) only persist through a reload for custom builds.
+> Note: `getSystem` prefers hardcoded definitions over custom entries with the same id. Editable per-build settings (dimensions, probe count, mulch, build type) are written to the shared **`Build Info`** sheet tab so every device sees the same values — see next section.
+
+---
+
+## Build Info sync (shared across devices)
+
+Per-build metadata that isn't part of the daily readings lives in a single `Build Info` sheet tab and is synced bidirectionally on app open.
+
+Columns: `System | Notes | Summary | BuildType | MulchBins | MulchType | Dimensions (JSON) | ProbeLabels (JSON) | UpdatedAt`
+
+- **Function:** `netlify/functions/compost-build-info.ts` — GET (all rows or single system), POST (merge-patch: undefined fields leave existing values alone)
+- **Write path:** `updateCustomSystem()` in `CompostContext` writes to IndexedDB and fires a POST with all editable fields. Notes/Summary go through `BuildDescription` the same way.
+- **Read path on app open:**
+  1. Fetch all rows → for each system, merge sheet values over local where the sheet has data. Save merged result to IndexedDB so changes persist offline.
+  2. For each local system that has data the sheet is missing (e.g. a user who entered mulch bins before sync existed), push the local values up so other devices see them next time they open the app.
+- **Migration:** `ensureTabAndHeaders` extends the header row when old 4-column tabs are detected — no manual action needed.
+- Dimensions + ProbeLabels are stored as JSON strings; parsed defensively on read (invalid JSON → null, falling back to local).
 
 ---
 
@@ -207,7 +223,20 @@ DailyEntry {
 The `SystemAnalysePage` at `/analyse/:systemId` is a desktop-first "story of this pile" view. Data sections (Composition, Readiness Check, Soil, Harvest, etc.) sit on the left; photos of the same subject sit on the right (2-column on desktop via `md:grid-cols-2`, stacks on mobile).
 
 ### Build description (top of page)
-`BuildDescription` shows the build type badge + meta chips (probe count, dimensions, mulch bins) and provides two editable textareas — **Build notes** (freeform story of the build) and **Summary** (plain-language wrap-up; will get AI-assistant predictions in future). Saved per-system to the `Build Info` sheet tab via `compost-build-info.ts`.
+`BuildDescription` shows the build-type badge only at the top (probe count, dimensions, mulch bins are no longer surfaced here — those details live on the Manage page). Two editable textareas — **Build notes** (freeform story of the build) and **Summary** (plain-language wrap-up) — are saved per-system to the `Build Info` sheet tab via `compost-build-info.ts`.
+
+### Temperature chart
+
+The chart lives under the Build Description. Two toggles in the header:
+- **°F → °C / °C → °F** — unit conversion for all temperature series
+- **Ambient** — overlays the daily ambient min (light blue dashed) and max (deeper blue dashed) pulled from the sheet's Ambient Min/Max columns. Values are stored in the sheet in °C; converted to the chart's active unit at render time.
+
+When Ambient is on, the chart tooltip adds an `Ambient: min / max` line.
+
+### Future enhancements (not yet built)
+
+- **AI-assisted summary** on the Summary field — pre-fill from readings, kill-cycle achievement, turn events, sample labs. Will use the same pattern as Hononga's `summarise-korero.ts`.
+- **Cross-build analytics** — filter and compare multiple builds by build type, season, or custom attribute. See "Ideas for expanding Analyse" further down.
 
 ### Photo slots
 Fixed slots are defined in `src/utils/photoSlots.ts`:
@@ -236,6 +265,19 @@ The `Transform` column holds JSON `{fx, fy, zoom}` (0..1 focal-point coords + zo
 
 ### Public view
 Routes under `/view/:systemId` set `isPublicView = true` — photo editing controls and CSV import are hidden, textareas are read-only.
+
+### Ideas for expanding Analyse (roadmap)
+
+Single-build Analyse works today. The next step is **cross-build analytics**, grouping builds by their shared metadata (which is why `buildType`, `mulchBins`, dimensions, season-of-build, etc. are now synced to the Build Info tab — it becomes the query axis).
+
+Four directions worth exploring:
+
+1. **Build-type cohorts** — e.g. "all Johnson-Su Static builds". Averaged kill-cycle curves overlaid, mean days-to-131°F, longest-streak distribution. Feels like an Analyse-level page with a `?type=` filter.
+2. **Type-vs-type comparisons** — Johnson-Su Static vs Non-Static side-by-side; Carbon Cube vs Pallet Bay. Two curves, delta table below (avg peak, avg kill days, avg volume loss %).
+3. **Seasonal comparisons** — same build type split by build start month (summer vs winter). Ambient overlay (already built for the single-chart view) becomes essential context here.
+4. **Recipe correlation** — bin composition (% food, % coffee, % cardboard, etc.) as input, peak temperature / kill days achieved as output. Scatter or small-multiple charts.
+
+Implementation approach when ready: add an `/analyse` index page with filter chips (type, season, mulch load), render a small-multiple grid of sparkline temperature curves, and link through to the existing per-build page for detail. Volume/kill-days aggregations can live in a new Netlify function that reads multiple sheet tabs server-side and returns a normalised dataset.
 
 ---
 

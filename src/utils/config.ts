@@ -55,9 +55,11 @@ export function getTempLowerLimitF(ambientMaxC: number | null | undefined): numb
 
 // Default build types — user can add more via the app
 export const DEFAULT_BUILD_TYPES = [
-  'Standard Johnson Su',
-  'Cylinder Johnson Su',
-  'Single Pipe Cylinder Johnson Su',
+  'IBC Bioreactors (Johnson-Su Style) - Static',
+  'IBC Bioreactors (Johnson-Su Style) - Non Static',
+  'Circular Bioreactors (Central Airflow) – Static',
+  'Compost Cylinders (Passive Systems) – Static',
+  'Pallet Compost Bays (Turned Systems) – Non Static',
 ];
 
 // Default mulch types — user can add more via the app
@@ -65,6 +67,42 @@ export const DEFAULT_MULCH_TYPES = [
   'Fine',
   'Medium',
   'Chunky',
+];
+
+// Defaults for Maturation phase setup — user can add more via the app
+export const DEFAULT_CONTAINER_TYPES = [
+  'Volumatic bin',
+  'Buckets',
+  'Wooden bay',
+  'IBC',
+];
+
+export const DEFAULT_PLACEMENTS = [
+  'In-ground',
+  'On-ground',
+  'Above-ground',
+];
+
+export const DEFAULT_COVER_TYPES = [
+  'Open',
+  'Closed',
+];
+
+// Defaults for Grow-phase trials — user can add more via the app
+export const DEFAULT_TRIAL_METHODS = [
+  'As mulch',
+  'Top dress',
+  'Trench at side',
+  'Plant directly in',
+];
+
+export const DEFAULT_TRIAL_CROPS = [
+  'Pumpkin',
+  'Currants',
+  'Potatoes',
+  'Gooseberries',
+  'Tagasaste',
+  'Comfrey',
 ];
 
 // Default settings
@@ -76,6 +114,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastSyncTime: null,
   customBuildTypes: [],
   customMulchTypes: [],
+  customContainerTypes: [],
+  customPlacements: [],
+  customCoverTypes: [],
+  customTrialMethods: [],
+  customTrialCrops: [],
 };
 
 // Spreadsheet ID

@@ -67,10 +67,10 @@ export default async (request: Request, _context: Context) => {
     const tabName = buildName.trim();
     const serialSet = new Set(binSerials.map(s => s.trim()).filter(Boolean));
 
-    // Fetch cols E (serial) and I (batch) so we can locate the exact rows
+    // Fetch cols G (serial) and K (batch) so we can locate the exact rows
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Bin Tracker'!A:I",
+      range: "'Bin Tracker'!A:K",
     });
     const rows = res.data.values ?? [];
 
@@ -78,8 +78,8 @@ export default async (request: Request, _context: Context) => {
     const affectedIndices: number[] = [];
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i] || [];
-      const serial = (row[4] || '').toString().trim();
-      const batch = (row[8] || '').toString().trim();
+      const serial = (row[6] || '').toString().trim();
+      const batch = (row[10] || '').toString().trim();
       if (batch === tabName && serialSet.has(serial)) {
         affectedIndices.push(i);
       }
@@ -97,17 +97,17 @@ export default async (request: Request, _context: Context) => {
       });
     }
 
-    // Clear col H (batching date) and col I (batch name)
+    // Clear col J (batching date) and col K (batch name)
     const clearData = affectedIndices.map(rowIndex => {
       const sheetRow = rowIndex + 1;
-      return { range: `'Bin Tracker'!H${sheetRow}:I${sheetRow}`, values: [['', '']] };
+      return { range: `'Bin Tracker'!J${sheetRow}:K${sheetRow}`, values: [['', '']] };
     });
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
       requestBody: { valueInputOption: 'USER_ENTERED', data: clearData },
     });
 
-    // Reset background colour on cols E and I back to white
+    // Reset background colour on cols G and K back to white
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
     const binTrackerSheetId = spreadsheet.data.sheets?.find(
       (s: any) => s.properties?.title === 'Bin Tracker',
@@ -122,8 +122,8 @@ export default async (request: Request, _context: Context) => {
               sheetId: binTrackerSheetId,
               startRowIndex: rowIndex,
               endRowIndex: rowIndex + 1,
-              startColumnIndex: 4, // col E — bin serial number
-              endColumnIndex: 5,
+              startColumnIndex: 6, // col G — bin serial number
+              endColumnIndex: 7,
             },
             cell: { userEnteredFormat: { backgroundColor: white } },
             fields: 'userEnteredFormat(backgroundColor)',
@@ -135,8 +135,8 @@ export default async (request: Request, _context: Context) => {
               sheetId: binTrackerSheetId,
               startRowIndex: rowIndex,
               endRowIndex: rowIndex + 1,
-              startColumnIndex: 8, // col I — batch name
-              endColumnIndex: 9,
+              startColumnIndex: 10, // col K — batch name
+              endColumnIndex: 11,
             },
             cell: { userEnteredFormat: { backgroundColor: white } },
             fields: 'userEnteredFormat(backgroundColor)',

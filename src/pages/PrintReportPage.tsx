@@ -64,7 +64,6 @@ export function PrintReportPage() {
     return <div className="p-8">System not found</div>;
   }
 
-  const hero = mediaItems.filter(m => m.slot === 'hero');
   const today = new Date().toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
@@ -84,13 +83,6 @@ export function PrintReportPage() {
         <h1 className="text-3xl font-bold">{system.name}</h1>
         <div className="text-sm text-gray-600 mt-1">Generated {today}</div>
       </header>
-
-      {/* Hero */}
-      {hero.length > 0 && (
-        <div className="mb-6 break-inside-avoid">
-          <PhotoGallery items={hero} printMode onAdd={() => {}} heightClass="h-96" />
-        </div>
-      )}
 
       {/* Summary */}
       {summary && (

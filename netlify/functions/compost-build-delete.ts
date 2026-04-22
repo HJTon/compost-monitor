@@ -60,10 +60,10 @@ export default async (request: Request, _context: Context) => {
       (s: any) => s.properties?.title === tabName,
     )?.properties?.sheetId ?? null;
 
-    // Find Bin Tracker rows where col I = tabName
+    // Find Bin Tracker rows where col K = tabName
     const colIResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Bin Tracker'!I:I",
+      range: "'Bin Tracker'!K:K",
     });
     const colIValues = colIResponse.data.values ?? [];
 
@@ -76,10 +76,10 @@ export default async (request: Request, _context: Context) => {
     }
 
     if (affectedIndices.length > 0) {
-      // Clear col H (batching date) and col I (batch name)
+      // Clear col J (batching date) and col K (batch name)
       const clearData = affectedIndices.map(rowIndex => {
         const sheetRow = rowIndex + 1;
-        return { range: `'Bin Tracker'!H${sheetRow}:I${sheetRow}`, values: [['', '']] };
+        return { range: `'Bin Tracker'!J${sheetRow}:K${sheetRow}`, values: [['', '']] };
       });
 
       await sheets.spreadsheets.values.batchUpdate({
@@ -87,7 +87,7 @@ export default async (request: Request, _context: Context) => {
         requestBody: { valueInputOption: 'USER_ENTERED', data: clearData },
       });
 
-      // Reset background colour on col E and col I back to white
+      // Reset background colour on col G and col K back to white
       if (binTrackerSheetId != null) {
         const white = { red: 1, green: 1, blue: 1 };
         const resetRequests = affectedIndices.flatMap(rowIndex => [
@@ -97,8 +97,8 @@ export default async (request: Request, _context: Context) => {
                 sheetId: binTrackerSheetId,
                 startRowIndex: rowIndex,
                 endRowIndex: rowIndex + 1,
-                startColumnIndex: 4, // col E — bin serial number
-                endColumnIndex: 5,
+                startColumnIndex: 6, // col G — bin serial number
+                endColumnIndex: 7,
               },
               cell: { userEnteredFormat: { backgroundColor: white } },
               fields: 'userEnteredFormat(backgroundColor)',
@@ -110,8 +110,8 @@ export default async (request: Request, _context: Context) => {
                 sheetId: binTrackerSheetId,
                 startRowIndex: rowIndex,
                 endRowIndex: rowIndex + 1,
-                startColumnIndex: 8, // col I — batch name
-                endColumnIndex: 9,
+                startColumnIndex: 10, // col K — batch name
+                endColumnIndex: 11,
               },
               cell: { userEnteredFormat: { backgroundColor: white } },
               fields: 'userEnteredFormat(backgroundColor)',

@@ -122,12 +122,10 @@ export default async (request: Request, _context: Context) => {
     const body: WriteRequest = await request.json();
     const sheetTab = SYSTEM_TAB_MAP[body.tab] || body.tab;
 
-    // Build row: Date, Time, Weather, Ambient Min, Ambient Max, Moisture, Odour,
-    //            Probe1-9, Average (formula), Peak (formula),
-    //            Vent Temps, Visual Notes, General Notes, Media Links
+    // Build minimal row — just the fixed-position leading columns (Date..Probes + 2 formula slots).
+    // Vent/Visual/General/Media are written by header name afterwards so they land in the correct
+    // column on every sheet variant (some Pivot sheets have non-standard header ordering).
     const probeValues = body.probes.map(v => v !== null ? v : '');
-
-    // Row will be appended - we'll add formulas for calculated columns
     const row = [
       body.date,
       body.time,
@@ -137,12 +135,7 @@ export default async (request: Request, _context: Context) => {
       body.moisture || '',
       body.odour || '',
       ...probeValues,
-      // Average and Peak will be formulas - placeholder for now
-      '', '',
-      body.ventTemps || '',
-      body.visualNotes || '',
-      body.generalNotes || '',
-      body.mediaLinks.join('\n'),
+      '', '', // Average, Peak — formulas added below
     ];
 
     const sheets = getGoogleSheetsClient();
@@ -191,16 +184,69 @@ export default async (request: Request, _context: Context) => {
           },
         });
 
-        // Write height, turn, width, length if any are present
+        // Always scan headers so vent/visual/general/media land in the right columns
+        // for each sheet variant.
+        const headerRes = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `'${sheetTab}'!A1:AZ5`,
+        });
+        const headerRows = headerRes.data.values || [];
+
+        // Pick the header row (first row with ≥2 known header keywords)
+        const HEADER_KEYWORDS = ['date', 'time', 'weather', 'averag', 'peak', 'height', 'moisture', 'probe', 'odour', 'ambient'];
+        let pickedHeader: string[] = [];
+        for (const hr of headerRows) {
+          const lowered = (hr || []).map((c: string) => (c || '').toLowerCase().trim());
+          const matches = lowered.filter(c => HEADER_KEYWORDS.some(k => c.includes(k))).length;
+          if (matches >= 2) { pickedHeader = hr || []; break; }
+        }
+        const hLower = pickedHeader.map((c: string) => (c || '').toLowerCase().trim());
+
+        const findColByTerms = (...terms: string[]): number =>
+          hLower.findIndex(c => terms.some(t => c.includes(t)));
+
+        const writeCell = async (colIdx: number, value: string | number) => {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `'${sheetTab}'!${colLetter(colIdx)}${rowNum}`,
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[value]] },
+          });
+        };
+
+        // Vent temps
+        const ventIdx = findColByTerms('vent');
+        if (ventIdx >= 0 && body.ventTemps) await writeCell(ventIdx, body.ventTemps);
+
+        // Visual / General notes — use header names; if the sheet has only a single
+        // "Notes" column, merge visual+general into it.
+        const visualIdx = findColByTerms('visual');
+        const generalIdx = hLower.findIndex((c, i) => i !== visualIdx && c.includes('general'));
+        const singleNotesIdx = visualIdx < 0 && generalIdx < 0
+          ? hLower.findIndex(c => c.includes('note'))
+          : -1;
+
+        if (visualIdx >= 0 && body.visualNotes) await writeCell(visualIdx, body.visualNotes);
+        if (generalIdx >= 0 && body.generalNotes) {
+          await writeCell(generalIdx, body.generalNotes);
+        } else if (visualIdx >= 0 && body.generalNotes) {
+          // No general col but we do have visual — fall back: find any other "note" col
+          const altNoteIdx = hLower.findIndex((c, i) => i !== visualIdx && c.includes('note'));
+          if (altNoteIdx >= 0) await writeCell(altNoteIdx, body.generalNotes);
+        }
+        if (singleNotesIdx >= 0) {
+          const combined = [body.visualNotes, body.generalNotes].filter(Boolean).join('\n');
+          if (combined) await writeCell(singleNotesIdx, combined);
+        }
+
+        // Media links
+        const mediaIdx = findColByTerms('media');
+        if (mediaIdx >= 0 && body.mediaLinks.length > 0) {
+          await writeCell(mediaIdx, body.mediaLinks.join('\n'));
+        }
+
         const needsHeaderScan = body.height != null || body.turn || body.newWidth != null || body.newLength != null;
         if (needsHeaderScan) {
-          // Read header rows once for all column lookups
-          const headerRes = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${sheetTab}'!A1:AZ5`,
-          });
-          const headerRows = headerRes.data.values || [];
-
           const findCol = (keyword: string): number => {
             for (const hRow of headerRows) {
               const idx = (hRow || []).findIndex((c: string) => (c || '').toLowerCase().trim().includes(keyword));

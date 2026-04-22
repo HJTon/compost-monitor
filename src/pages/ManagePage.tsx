@@ -1,18 +1,21 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, RotateCcw, Trash2, ScanLine, Search, X, ChevronDown, ChevronUp, Camera, AlertTriangle, Store, CalendarDays } from 'lucide-react';
+import { Trash2, ScanLine, Search, X, ChevronDown, ChevronUp, Camera, AlertTriangle, Store, CalendarDays, Flame, Leaf, Sprout, ArrowRight, Plus } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { useCompost } from '@/contexts/CompostContext';
 import { COMPOST_SYSTEMS, generateId } from '@/utils/config';
 import { BinScanner, type ScanOutcome } from '@/components/BinScanner';
 import { formatSerialNumber } from '@/services/ocrService';
-import type { BusinessInfo, ContaminationRecord } from '@/types';
+import { PhaseModal } from '@/components/PhaseModal';
+import type { BusinessInfo, ContaminationRecord, CompostSystem, BuildPhase, GrowTrial } from '@/types';
 
 interface BinDetails {
   collectionDate: string;
   source1: string;
   source2: string;
   source3: string;
+  source4: string;
+  source5: string;
   serialNumber: string;
   colour: string;
   maturationDate: string;
@@ -27,12 +30,14 @@ function rowToBinDetails(row: string[]): BinDetails {
     source1: row[1] || '',
     source2: row[2] || '',
     source3: row[3] || '',
-    serialNumber: row[4] || '',
-    colour: row[5] || '',
-    maturationDate: row[6] || '',
-    batchingDate: row[7] || '',
-    batch: row[8] || '',
-    notes: row[9] || '',
+    source4: row[4] || '',
+    source5: row[5] || '',
+    serialNumber: row[6] || '',
+    colour: row[7] || '',
+    maturationDate: row[8] || '',
+    batchingDate: row[9] || '',
+    batch: row[10] || '',
+    notes: row[11] || '',
   };
 }
 
@@ -71,7 +76,7 @@ function BinDetailCard({ bin, label, muted }: { bin: BinDetails; label?: string;
         <div>
           <p className="text-gray-400 text-xs">Sources</p>
           <p className={muted ? 'text-gray-500' : 'text-gray-700'}>
-            {[bin.source1, bin.source2, bin.source3].filter(Boolean).join(', ') || '—'}
+            {[bin.source1, bin.source2, bin.source3, bin.source4, bin.source5].filter(Boolean).join(', ') || '—'}
           </p>
         </div>
         <div>
@@ -337,7 +342,10 @@ function SourceList({
 
 export function ManagePage() {
   const navigate = useNavigate();
-  const { allSystems, settings, setSystemActive, removeCustomSystem, addToast, businesses, saveBusiness } = useCompost();
+  const { allSystems, settings, setSystemPhase, removeCustomSystem, addToast, businesses, saveBusiness } = useCompost();
+
+  // Phase transition modal
+  const [phaseModal, setPhaseModal] = useState<{ system: CompostSystem; mode: 'toMaturation' | 'toGrow' | 'addTrial' } | null>(null);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -377,7 +385,7 @@ export function ManagePage() {
       const rows = await fetchBinTracker();
       // Find ALL matching rows (skip header), keep order from sheet (oldest first)
       const matches = rows.slice(1).filter(row =>
-        formatSerialNumber(row[4] || '') === formatted
+        formatSerialNumber(row[6] || '') === formatted
       );
 
       if (matches.length > 0) {
@@ -406,7 +414,7 @@ export function ManagePage() {
     if (binTrackerData) {
       const formatted = formatSerialNumber(serial);
       const found = binTrackerData.slice(1).some(row =>
-        formatSerialNumber(row[4] || '') === formatted
+        formatSerialNumber(row[6] || '') === formatted
       );
       return found ? 'selected' : 'not_found';
     }
@@ -456,7 +464,7 @@ export function ManagePage() {
       const rows = await fetchBinTracker();
       // Find all rows matching this serial
       const matches = rows.slice(1).filter(row =>
-        formatSerialNumber(row[4] || '') === formatted
+        formatSerialNumber(row[6] || '') === formatted
       );
 
       if (matches.length === 0) {
@@ -466,7 +474,7 @@ export function ManagePage() {
 
       // Get the most recent row's sources
       const latest = matches[matches.length - 1];
-      const sources = [latest[1], latest[2], latest[3]].filter(Boolean);
+      const sources = [latest[1], latest[2], latest[3], latest[4], latest[5]].filter(Boolean);
       setContamSources(sources);
       // Get collection date from the most recent row
       setContamCollectionDate(latest[0] || '');
@@ -542,7 +550,17 @@ export function ManagePage() {
   }, [businesses, saveBusiness, addToast]);
 
   const activeSystems = allSystems.filter(s => settings.activeSystems.includes(s.id));
-  const retiredSystems = allSystems.filter(s => !settings.activeSystems.includes(s.id));
+
+  const getPhase = (s: CompostSystem): BuildPhase => s.phase || 'thermophilic';
+  const thermoBuilds = activeSystems.filter(s => getPhase(s) === 'thermophilic');
+  const maturationBuilds = activeSystems.filter(s => getPhase(s) === 'maturation');
+  const growBuilds = activeSystems.filter(s => getPhase(s) === 'grow');
+
+  const handleRemoveTrial = async (system: CompostSystem, trialId: string) => {
+    if (!system.grow) return;
+    const next = { ...system.grow, trials: system.grow.trials.filter(t => t.id !== trialId) };
+    await setSystemPhase(system.id, 'grow', { grow: next });
+  };
 
   // Collect unique source names, split into businesses vs events, exclude hidden
   const hiddenNames = useMemo(() => new Set(businesses.filter(b => b.hidden).map(b => b.name)), [businesses]);
@@ -552,7 +570,7 @@ export function ManagePage() {
     businesses.filter(b => !b.hidden).forEach(b => names.add(b.name));
     if (binTrackerData) {
       binTrackerData.slice(1).forEach(row => {
-        [row[1], row[2], row[3]].filter(Boolean).forEach(s => {
+        [row[1], row[2], row[3], row[4], row[5]].filter(Boolean).forEach(s => {
           if (!hiddenNames.has(s)) names.add(s);
         });
       });
@@ -960,97 +978,191 @@ export function ManagePage() {
           </div>
         </div>
 
-        {/* ── Active builds ────────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">Active</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Currently being monitored</p>
-          </div>
-
-          {activeSystems.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-400 text-center">No active builds</p>
-          ) : (
-            <div className="divide-y divide-gray-50">
-              {activeSystems.map(system => (
-                <div
-                  key={system.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate(`/manage/${system.id}`)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      navigate(`/manage/${system.id}`);
-                    }
-                  }}
-                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-green-50/40 active:bg-green-50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{system.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Tap to view bins</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); setSystemActive(system.id, false); }}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-gray-200 text-gray-500 hover:border-amber-300 hover:text-amber-600 transition-colors"
-                    >
-                      <Archive size={12} />
-                      Retire
-                    </button>
-                    <DeleteButton id={system.id} name={system.name} />
-                  </div>
-                </div>
-              ))}
-            </div>
+        {/* ── Thermophilic builds ─────────────────────────────────────── */}
+        <PhaseSection
+          title="Thermophilic"
+          description="Active heating — daily probe readings"
+          accent="green"
+          icon={<Flame size={16} className="text-green-700" />}
+          systems={thermoBuilds}
+          onNavigate={id => navigate(`/manage/${id}`)}
+          renderAction={system => (
+            <button
+              onClick={e => { e.stopPropagation(); setPhaseModal({ system, mode: 'toMaturation' }); }}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-medium hover:bg-amber-100 transition-colors"
+            >
+              <ArrowRight size={12} />
+              Move to Maturation
+            </button>
           )}
-        </div>
+          DeleteButton={DeleteButton}
+        />
 
-        {/* ── Retired builds ───────────────────────────────────────────── */}
+        {/* ── Maturation builds ───────────────────────────────────────── */}
+        <PhaseSection
+          title="Maturation"
+          description="Resting — still records readings, shown in amber"
+          accent="amber"
+          icon={<Leaf size={16} className="text-amber-700" />}
+          systems={maturationBuilds}
+          onNavigate={id => navigate(`/manage/${id}`)}
+          renderMeta={system => system.maturation && (
+            <p className="text-xs text-gray-500 mt-0.5 truncate">
+              {system.maturation.containerType} · {system.maturation.placement} · {system.maturation.coverType}
+              {system.maturation.startedAt && ` · since ${system.maturation.startedAt}`}
+            </p>
+          )}
+          renderAction={system => (
+            <button
+              onClick={e => { e.stopPropagation(); setPhaseModal({ system, mode: 'toGrow' }); }}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-50 border border-purple-200 text-purple-700 font-medium hover:bg-purple-100 transition-colors"
+            >
+              <ArrowRight size={12} />
+              Move to Grow
+            </button>
+          )}
+          DeleteButton={DeleteButton}
+        />
+
+        {/* ── Grow builds ─────────────────────────────────────────────── */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">Retired</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Completed or paused builds</p>
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+            <Sprout size={16} className="text-purple-700" />
+            <div className="flex-1">
+              <h2 className="font-semibold text-gray-900">Grow</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Field trials — no longer in Measure</p>
+            </div>
           </div>
-
-          {retiredSystems.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-400 text-center">No retired builds</p>
+          {growBuilds.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-gray-400 text-center">No builds in grow phase</p>
           ) : (
             <div className="divide-y divide-gray-50">
-              {retiredSystems.map(system => (
-                <div
-                  key={system.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate(`/manage/${system.id}`)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      navigate(`/manage/${system.id}`);
-                    }
-                  }}
-                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-500 truncate">{system.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Tap to view bins</p>
+              {growBuilds.map(system => {
+                const trials = system.grow?.trials || [];
+                return (
+                  <div key={system.id} className="px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{system.name}</p>
+                        {system.grow?.startedAt && (
+                          <p className="text-xs text-gray-400 mt-0.5">Grow phase since {system.grow.startedAt}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setPhaseModal({ system, mode: 'addTrial' })}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-600 text-white font-medium hover:bg-purple-700 transition-colors"
+                      >
+                        <Plus size={12} />
+                        Trial
+                      </button>
+                      <DeleteButton id={system.id} name={system.name} />
+                    </div>
+
+                    {trials.length > 0 && (
+                      <div className="space-y-1.5 pl-2">
+                        {trials.map((t: GrowTrial) => (
+                          <div
+                            key={t.id}
+                            className="flex items-center gap-2 px-3 py-2 bg-purple-50/60 border border-purple-100 rounded-lg"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-purple-900">
+                                {t.method} · {t.crop}
+                              </p>
+                              {t.notes && (
+                                <p className="text-xs text-gray-500 mt-0.5 truncate">{t.notes}</p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleRemoveTrial(system, t.id)}
+                              className="p-1 text-gray-300 hover:text-red-400 transition-colors"
+                              title="Remove trial"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {trials.length === 0 && (
+                      <p className="text-xs text-gray-400 italic pl-2">No trials yet — tap + Trial to add one</p>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); setSystemActive(system.id, true); }}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-gray-200 text-gray-500 hover:border-green-400 hover:text-green-700 transition-colors"
-                    >
-                      <RotateCcw size={12} />
-                      Reactivate
-                    </button>
-                    <DeleteButton id={system.id} name={system.name} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
       </div>
+
+      {phaseModal && (
+        <PhaseModal
+          system={phaseModal.system}
+          mode={phaseModal.mode}
+          onClose={() => setPhaseModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+type Accent = 'green' | 'amber';
+
+interface PhaseSectionProps {
+  title: string;
+  description: string;
+  accent: Accent;
+  icon: React.ReactNode;
+  systems: CompostSystem[];
+  onNavigate: (id: string) => void;
+  renderAction: (system: CompostSystem) => React.ReactNode;
+  renderMeta?: (system: CompostSystem) => React.ReactNode;
+  DeleteButton: React.ComponentType<{ id: string; name: string }>;
+}
+
+function PhaseSection({ title, description, icon, systems, onNavigate, renderAction, renderMeta, DeleteButton }: PhaseSectionProps) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+        {icon}
+        <div className="flex-1">
+          <h2 className="font-semibold text-gray-900">{title}</h2>
+          <p className="text-xs text-gray-400 mt-0.5">{description}</p>
+        </div>
+      </div>
+
+      {systems.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-gray-400 text-center">None</p>
+      ) : (
+        <div className="divide-y divide-gray-50">
+          {systems.map(system => (
+            <div
+              key={system.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigate(system.id)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onNavigate(system.id);
+                }
+              }}
+              className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{system.name}</p>
+                {renderMeta ? renderMeta(system) : <p className="text-xs text-gray-400 mt-0.5">Tap to view bins</p>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                {renderAction(system)}
+                <DeleteButton id={system.id} name={system.name} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

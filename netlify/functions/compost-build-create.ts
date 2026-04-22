@@ -200,11 +200,11 @@ export default async (request: Request, _context: Context) => {
     }
 
     // ── 2. Update selected Bin Tracker rows ─────────────────────────────────
-    // Set col H = Date of Batching, col I = Batch (build name)
+    // Set col J = Date of Batching, col K = Batch (build name)
     const today = formatNZDate(buildDate);
     const batchUpdates = binRowIndices.map(arrayIndex => {
       const sheetRow = arrayIndex + 1;
-      return { range: `'Bin Tracker'!H${sheetRow}:I${sheetRow}`, values: [[today, tabName]] };
+      return { range: `'Bin Tracker'!J${sheetRow}:K${sheetRow}`, values: [[today, tabName]] };
     });
 
     await sheets.spreadsheets.values.batchUpdate({
@@ -215,7 +215,7 @@ export default async (request: Request, _context: Context) => {
       },
     });
 
-    // Apply background colour to col E (bin serial) and col I (batch name) in Bin Tracker
+    // Apply background colour to col G (bin serial) and col K (batch name) in Bin Tracker
     if (colour) {
       const rgb = COLOUR_RGB[colour];
       const binTrackerSheetId = spreadsheet.data.sheets?.find(
@@ -230,8 +230,8 @@ export default async (request: Request, _context: Context) => {
                 sheetId: binTrackerSheetId,
                 startRowIndex: arrayIndex,
                 endRowIndex: arrayIndex + 1,
-                startColumnIndex: 4, // col E — bin serial number
-                endColumnIndex: 5,
+                startColumnIndex: 6, // col G — bin serial number
+                endColumnIndex: 7,
               },
               cell: { userEnteredFormat: { backgroundColor: rgb } },
               fields: 'userEnteredFormat(backgroundColor)',
@@ -243,8 +243,8 @@ export default async (request: Request, _context: Context) => {
                 sheetId: binTrackerSheetId,
                 startRowIndex: arrayIndex,
                 endRowIndex: arrayIndex + 1,
-                startColumnIndex: 8, // col I — batch name
-                endColumnIndex: 9,
+                startColumnIndex: 10, // col K — batch name
+                endColumnIndex: 11,
               },
               cell: { userEnteredFormat: { backgroundColor: rgb } },
               fields: 'userEnteredFormat(backgroundColor)',

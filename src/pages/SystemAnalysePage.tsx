@@ -26,6 +26,17 @@ interface SheetEntry {
   height: number | null;
   turn?: boolean;
   sample?: string;
+  visualNotes?: string;
+  generalNotes?: string;
+  /** Ambient min (°C) as recorded in the sheet */
+  ambientMin?: number | null;
+  /** Ambient max (°C) as recorded in the sheet */
+  ambientMax?: number | null;
+}
+
+function cToF(c: number | null | undefined): number | null {
+  if (c === null || c === undefined) return null;
+  return Math.round((c * 9) / 5 + 32);
 }
 
 interface ChartPoint {
@@ -37,7 +48,12 @@ interface ChartPoint {
   height: number | null;
   turn: boolean;
   sample: string;
+  visualNotes: string;
+  generalNotes: string;
   isEstimate: boolean;
+  /** Ambient min/max stored in °F for display consistency; converted in useCelsius branch */
+  ambientMinF: number | null;
+  ambientMaxF: number | null;
 }
 
 interface CompositionItem {
@@ -73,7 +89,13 @@ function buildContinuousSeries(entries: SheetEntry[]): ChartPoint[] {
   for (const { e, d } of dated) {
     d.setHours(0, 0, 0, 0);
     const existing = byDay.get(d.getTime());
-    const merged = { ...e, turn: (e.turn || existing?.turn) ?? false, sample: e.sample || existing?.sample || '' };
+    const merged = {
+      ...e,
+      turn: (e.turn || existing?.turn) ?? false,
+      sample: e.sample || existing?.sample || '',
+      visualNotes: e.visualNotes || existing?.visualNotes || '',
+      generalNotes: e.generalNotes || existing?.generalNotes || '',
+    };
     byDay.set(d.getTime(), merged);
   }
 
@@ -96,7 +118,11 @@ function buildContinuousSeries(entries: SheetEntry[]): ChartPoint[] {
       height: known ? known.height : null,
       turn: known?.turn ?? false,
       sample: known?.sample || '',
+      visualNotes: known?.visualNotes || '',
+      generalNotes: known?.generalNotes || '',
       isEstimate: !known,
+      ambientMinF: known ? cToF(known.ambientMin) : null,
+      ambientMaxF: known ? cToF(known.ambientMax) : null,
     });
   }
 
@@ -143,7 +169,7 @@ interface TooltipPayloadItem {
   payload: ChartPoint;
 }
 
-function ChartTooltip({ active, payload, label, useCelsius }: { active?: boolean; payload?: TooltipPayloadItem[]; label?: string; useCelsius?: boolean }) {
+function ChartTooltip({ active, payload, label, useCelsius, showAmbient }: { active?: boolean; payload?: TooltipPayloadItem[]; label?: string; useCelsius?: boolean; showAmbient?: boolean }) {
   if (!active || !payload || !payload.length) return null;
   const point = payload[0].payload;
   const isEst = point.isEstimate;
@@ -151,6 +177,8 @@ function ChartTooltip({ active, payload, label, useCelsius }: { active?: boolean
   const peak = isEst ? point.peakEst : point.peak;
   const unit = useCelsius ? '°C' : '°F';
   if (avg === null && peak === null) return null;
+  const ambMax = useCelsius ? fToC(point.ambientMaxF) : point.ambientMaxF;
+  const ambMin = useCelsius ? fToC(point.ambientMinF) : point.ambientMinF;
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs">
       <div className="font-medium text-gray-900 mb-1">
@@ -163,6 +191,21 @@ function ChartTooltip({ active, payload, label, useCelsius }: { active?: boolean
       )}
       {peak !== null && (
         <div className="text-amber-600">Peak: {peak}{unit}</div>
+      )}
+      {showAmbient && (ambMax !== null || ambMin !== null) && (
+        <div className="mt-0.5 text-sky-700">
+          Ambient: {ambMin !== null ? `${ambMin}${unit}` : '—'} / {ambMax !== null ? `${ambMax}${unit}` : '—'}
+        </div>
+      )}
+      {!isEst && (point.generalNotes || point.visualNotes) && (
+        <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-gray-600 max-w-[240px] whitespace-pre-wrap">
+          {point.generalNotes && <div>{point.generalNotes}</div>}
+          {point.visualNotes && (
+            <div className={point.generalNotes ? 'mt-1 text-gray-500 italic' : 'text-gray-600'}>
+              {point.visualNotes}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -187,6 +230,7 @@ export function SystemAnalysePage() {
   const [binCount, setBinCount] = useState(0);
   const [compLoading, setCompLoading] = useState(true);
   const [useCelsius, setUseCelsius] = useState(false);
+  const [showAmbient, setShowAmbient] = useState(false);
   const [sheetDimensions, setSheetDimensions] = useState<{ heightCm: number | null; widthCm: number | null; lengthCm: number | null } | null>(null);
 
   // Readiness checks
@@ -327,6 +371,8 @@ export function SystemAnalysePage() {
       peak: fToC(pt.peak),
       avgEst: fToC(pt.avgEst),
       peakEst: fToC(pt.peakEst),
+      ambientMinF: fToC(pt.ambientMinF),
+      ambientMaxF: fToC(pt.ambientMaxF),
     }));
   }, [chartData, useCelsius]);
 
@@ -342,17 +388,15 @@ export function SystemAnalysePage() {
     );
   }
 
-  const xAxisInterval = Math.max(0, Math.floor(chartData.length / 8) - 1);
-
   return (
     <div className="min-h-screen bg-green-50/50 pb-8">
       <Header title={system.name} showBack onBack={() => navigate(isPublicView ? '/view' : '/analyse')} />
 
       <div className="p-4 space-y-4">
 
-        {/* Hero photo + Print */}
+        {/* Print button */}
         {!isPublicView && (
-          <div className="flex justify-end -mb-2">
+          <div className="flex justify-end">
             <button
               onClick={() => window.open(`/analyse/${systemId}/print`, '_blank')}
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-primary px-2 py-1 rounded"
@@ -361,7 +405,6 @@ export function SystemAnalysePage() {
             </button>
           </div>
         )}
-        <InlinePhotoSlot systemName={system.name} slotId="hero" heightClass="h-72 md:h-[30rem]" hideLabel />
 
         {/* Pile description — build type, notes, summary */}
         <BuildDescription system={system} readOnly={isPublicView} />
@@ -478,9 +521,18 @@ export function SystemAnalysePage() {
               >
                 {useCelsius ? '°C → °F' : '°F → °C'}
               </button>
+              <button
+                onClick={() => setShowAmbient(v => !v)}
+                className={`text-xs px-2.5 py-1 rounded-full font-medium active:scale-95 transition-all ${showAmbient ? 'bg-sky-100 text-sky-700 border border-sky-200' : 'bg-gray-100 text-gray-600'}`}
+                title="Toggle ambient high/low temperatures"
+              >
+                Ambient
+              </button>
             </div>
             {!loading && chartData.length > 0 && (
-              <span className="text-xs text-gray-400">{chartData.length} days</span>
+              <span className="text-xs text-gray-400">
+                {chartData[0].date} → {chartData[chartData.length - 1].date} · {chartData.length} days
+              </span>
             )}
           </div>
           {loading ? (
@@ -491,15 +543,23 @@ export function SystemAnalysePage() {
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={displayData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={xAxisInterval} />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={40} />
                 <YAxis tick={{ fontSize: 11 }} domain={[0, 'auto']} />
-                <Tooltip content={<ChartTooltip useCelsius={useCelsius} />} />
+                <Tooltip content={<ChartTooltip useCelsius={useCelsius} showAmbient={showAmbient} />} />
                 <ReferenceLine
                   y={killLineValue}
                   stroke="#EF4444"
                   strokeDasharray="5 5"
                   label={{ value: `${killLineValue}${tempUnit} Kill`, fill: '#EF4444', fontSize: 11 }}
                 />
+                {system.maturation?.startedAt && displayData.some(d => d.date >= system.maturation!.startedAt) && (
+                  <ReferenceLine
+                    x={system.maturation.startedAt}
+                    stroke="#D97706"
+                    strokeDasharray="3 3"
+                    label={{ value: 'Maturation', fill: '#D97706', fontSize: 11, position: 'insideTopRight' }}
+                  />
+                )}
                 {/* Turn icons rendered via customized dot on an invisible line */}
                 <Line
                   type="monotone"
@@ -577,6 +637,12 @@ export function SystemAnalysePage() {
                 {/* Solid actual-data lines on top, with gaps where no data */}
                 <Line type="monotone" dataKey="avg" stroke="#2D8B4E" strokeWidth={2} name="Average" dot={{ r: chartData.length > 60 ? 0 : 3 }} isAnimationActive={false} />
                 <Line type="monotone" dataKey="peak" stroke="#F59E0B" strokeWidth={2} name="Peak" dot={{ r: chartData.length > 60 ? 0 : 3 }} isAnimationActive={false} />
+                {showAmbient && (
+                  <>
+                    <Line type="monotone" dataKey="ambientMaxF" stroke="#0EA5E9" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient max" connectNulls isAnimationActive={false} />
+                    <Line type="monotone" dataKey="ambientMinF" stroke="#38BDF8" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient min" connectNulls isAnimationActive={false} />
+                  </>
+                )}
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -636,7 +702,7 @@ export function SystemAnalysePage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} interval={xAxisInterval} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={40} />
                     <YAxis tick={{ fontSize: 11 }} domain={[0, 'auto']} unit="cm" />
                     <Tooltip
                       formatter={(v: any) => v !== null && v !== undefined ? [`${v} cm`, 'Height'] : []}

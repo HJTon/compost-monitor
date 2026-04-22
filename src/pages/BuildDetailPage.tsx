@@ -9,7 +9,7 @@ import { Button } from '@/components/Button';
 import { BinScanner } from '@/components/BinScanner';
 import type { ScanOutcome } from '@/components/BinScanner';
 import { useCompost } from '@/contexts/CompostContext';
-import { getNZDate, DEFAULT_BUILD_TYPES, DEFAULT_MULCH_TYPES } from '@/utils/config';
+import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
 import { calcVolumeLitres, formatVolume } from '@/utils/volume';
 import type { BuildShape, BuildDimensions } from '@/types';
 
@@ -79,7 +79,7 @@ function colourBadge(colour: string): string {
 export function BuildDetailPage() {
   const navigate = useNavigate();
   const { systemId } = useParams<{ systemId: string }>();
-  const { getSystem, addToast, settings, updateSettings, updateCustomSystem } = useCompost();
+  const { getSystem, addToast, settings, updateSettings, updateCustomSystem, buildTypes, addBuildType } = useCompost();
 
   const system = systemId ? getSystem(systemId) : undefined;
 
@@ -134,7 +134,7 @@ export function BuildDetailPage() {
   const [addingMulchType, setAddingMulchType] = useState(false);
   const [newMulchType, setNewMulchType] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
-  const allBuildTypes = [...DEFAULT_BUILD_TYPES, ...(settings.customBuildTypes || [])];
+  const allBuildTypes = buildTypes;
   const allMulchTypes = [...DEFAULT_MULCH_TYPES, ...(settings.customMulchTypes || [])];
 
   const reload = useCallback(async () => {
@@ -158,21 +158,21 @@ export function BuildDetailPage() {
       rows.forEach((row, arrayIndex) => {
         if (arrayIndex === 0) return;
 
-        const rowColour = (row[5] || '').trim().toLowerCase();
+        const rowColour = (row[7] || '').trim().toLowerCase();
         if (rowColour) taken.add(rowColour);
 
-        const batch = (row[8] || '').trim();
-        const sources = [row[1], row[2], row[3]]
+        const batch = (row[10] || '').trim();
+        const sources = [row[1], row[2], row[3], row[4], row[5]]
           .map(v => (v || '').trim())
           .filter(Boolean);
 
         if (batch === system.name) {
           assigned.push({
             arrayIndex,
-            serialNumber: (row[4] || '').trim(),
+            serialNumber: (row[6] || '').trim(),
             collectionDate: (row[0] || '').trim(),
-            maturationDate: (row[6] || '').trim(),
-            batchingDate: (row[7] || '').trim(),
+            maturationDate: (row[8] || '').trim(),
+            batchingDate: (row[9] || '').trim(),
             sources,
             colour: rowColour,
           });
@@ -181,16 +181,16 @@ export function BuildDetailPage() {
         }
 
         if (batch !== '') return; // assigned to a different build
-        const matDate = parseTrackerDate(row[6] || '');
+        const matDate = parseTrackerDate(row[8] || '');
         if (!matDate || matDate > today) return; // not matured
 
         available.push({
           arrayIndex,
           collectionDate: (row[0] || '').trim(),
           sources,
-          serialNumber: (row[4] || '').trim(),
+          serialNumber: (row[6] || '').trim(),
           colour: rowColour,
-          maturationDate: (row[6] || '').trim(),
+          maturationDate: (row[8] || '').trim(),
         });
       });
 
@@ -681,7 +681,7 @@ export function BuildDetailPage() {
                 {addingBuildType ? (
                   <div className="flex gap-1 mt-0.5">
                     <input type="text" value={newBuildType} onChange={e => setNewBuildType(e.target.value)} placeholder="New type…" className="flex-1 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:border-green-primary outline-none" />
-                    <button onClick={() => { if (newBuildType.trim()) { updateSettings({ customBuildTypes: [...(settings.customBuildTypes || []), newBuildType.trim()] }); setEditBuildType(newBuildType.trim()); setNewBuildType(''); } setAddingBuildType(false); }} className="px-2 py-1 text-xs text-green-primary font-medium">Add</button>
+                    <button onClick={() => { const t = newBuildType.trim(); if (t) { addBuildType(t); setEditBuildType(t); setNewBuildType(''); } setAddingBuildType(false); }} className="px-2 py-1 text-xs text-green-primary font-medium">Add</button>
                     <button onClick={() => setAddingBuildType(false)} className="px-1 text-xs text-gray-400">Cancel</button>
                   </div>
                 ) : (

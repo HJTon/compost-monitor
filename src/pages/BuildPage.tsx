@@ -6,7 +6,7 @@ import { Button } from '@/components/Button';
 import { BinScanner } from '@/components/BinScanner';
 import type { ScanOutcome } from '@/components/BinScanner';
 import { useCompost } from '@/contexts/CompostContext';
-import { getNZDate, DEFAULT_BUILD_TYPES, DEFAULT_MULCH_TYPES } from '@/utils/config';
+import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
 import type { CompostSystem, BuildShape, BuildDimensions } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ function colourBadge(colour: string): string {
 
 export function BuildPage() {
   const navigate = useNavigate();
-  const { addCustomSystem, addToast, settings, updateSettings } = useCompost();
+  const { addCustomSystem, addToast, settings, updateSettings, buildTypes, addBuildType } = useCompost();
 
   const [bins, setBins] = useState<BinRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +103,7 @@ export function BuildPage() {
   const [buildType, setBuildType] = useState('');
   const [addingBuildType, setAddingBuildType] = useState(false);
   const [newBuildType, setNewBuildType] = useState('');
-  const allBuildTypes = [...DEFAULT_BUILD_TYPES, ...(settings.customBuildTypes || [])];
+  const allBuildTypes = buildTypes;
 
   // Mulch
   const [mulchBins, setMulchBins] = useState('');
@@ -139,15 +139,15 @@ export function BuildPage() {
           if (arrayIndex === 0) return; // skip header
 
           // Collect all colours in use across the whole tracker
-          const rowColour = (row[5] || '').trim().toLowerCase();
+          const rowColour = (row[7] || '').trim().toLowerCase();
           if (rowColour) taken.add(rowColour);
 
-          const batch = (row[8] || '').trim();
+          const batch = (row[10] || '').trim();
           if (batch !== '') return; // already assigned
-          const matDate = parseTrackerDate(row[6] || '');
+          const matDate = parseTrackerDate(row[8] || '');
           if (!matDate || matDate > today) return; // not yet matured
 
-          const sources = [row[1], row[2], row[3]]
+          const sources = [row[1], row[2], row[3], row[4], row[5]]
             .map(v => (v || '').trim())
             .filter(Boolean);
 
@@ -155,9 +155,9 @@ export function BuildPage() {
             arrayIndex,
             collectionDate: (row[0] || '').trim(),
             sources,
-            serialNumber: (row[4] || '').trim(),
+            serialNumber: (row[6] || '').trim(),
             colour: rowColour,
-            maturationDate: (row[6] || '').trim(),
+            maturationDate: (row[8] || '').trim(),
           });
         });
 
@@ -386,9 +386,10 @@ export function BuildPage() {
                 />
                 <button
                   onClick={() => {
-                    if (newBuildType.trim()) {
-                      updateSettings({ customBuildTypes: [...(settings.customBuildTypes || []), newBuildType.trim()] });
-                      setBuildType(newBuildType.trim());
+                    const trimmed = newBuildType.trim();
+                    if (trimmed) {
+                      addBuildType(trimmed);
+                      setBuildType(trimmed);
                       setNewBuildType('');
                     }
                     setAddingBuildType(false);
