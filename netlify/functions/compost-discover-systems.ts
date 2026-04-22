@@ -146,7 +146,7 @@ export default async (request: Request, _context: Context) => {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=300', // cache for 5 minutes
+        'Cache-Control': 'no-store', // always fresh — devices must agree on build list
       },
     });
 

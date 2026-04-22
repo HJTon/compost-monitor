@@ -311,15 +311,39 @@ export function CompostProvider({ children }: { children: ReactNode }) {
       // Auto-discover systems from the spreadsheet (when online)
       if (navigator.onLine) {
         try {
-          const res = await fetch('/.netlify/functions/compost-discover-systems');
+          const res = await fetch('/.netlify/functions/compost-discover-systems', { cache: 'no-store' });
           if (res.ok) {
             const data = await res.json();
             const discovered: { tabName: string; probeCount: number }[] = data.systems || [];
+            const discoveredTabSet = new Set(discovered.map(d => d.tabName.trim()));
+
+            // Full sync: purge any local custom system whose sheet tab is no
+            // longer in the discovered list AND isn't one of the hardcoded
+            // 11 systems. This keeps every device agreeing on the same build
+            // list even if an earlier install accumulated stale entries.
+            const hardcodedTabs = new Set(COMPOST_SYSTEMS.map(s => s.sheetTab.trim()));
+            const stalePurgeIds: string[] = [];
+            const survivingCustom: CompostSystem[] = [];
+            for (const s of cleanCustomSystems) {
+              const tab = s.sheetTab.trim();
+              if (discoveredTabSet.has(tab) || hardcodedTabs.has(tab)) {
+                survivingCustom.push(s);
+              } else {
+                stalePurgeIds.push(s.id);
+                await deleteCustomSystem(s.id);
+              }
+            }
+            if (stalePurgeIds.length > 0) {
+              setCustomSystems(prev => prev.filter(s => !stalePurgeIds.includes(s.id)));
+              appSettings.activeSystems = appSettings.activeSystems.filter(id => !stalePurgeIds.includes(id));
+              await dbSaveSettings(appSettings);
+              setSettings(appSettings);
+            }
 
             // Build a set of all tab names we already know about
             const knownTabs = new Set<string>();
             for (const s of COMPOST_SYSTEMS) knownTabs.add(s.sheetTab.trim());
-            for (const s of cleanCustomSystems) knownTabs.add(s.sheetTab.trim());
+            for (const s of survivingCustom) knownTabs.add(s.sheetTab.trim());
 
             const newSystems: CompostSystem[] = [];
             for (const d of discovered) {
