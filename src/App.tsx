@@ -14,6 +14,7 @@ import { ManagePage } from '@/pages/ManagePage';
 import { BuildDetailPage } from '@/pages/BuildDetailPage';
 import { AnalysePage } from '@/pages/AnalysePage';
 import { CohortPage } from '@/pages/CohortPage';
+import { TypeVsTypePage } from '@/pages/TypeVsTypePage';
 import { SystemAnalysePage } from '@/pages/SystemAnalysePage';
 import { ComparePage } from '@/pages/ComparePage';
 import { PublicViewPage } from '@/pages/PublicViewPage';
@@ -47,6 +48,7 @@ function AppRoutes() {
               <Route path="/manage/:systemId" element={<BuildDetailPage />} />
               <Route path="/analyse" element={<AnalysePage />} />
               <Route path="/analyse/cohort" element={<CohortPage />} />
+              <Route path="/analyse/vs" element={<TypeVsTypePage />} />
               <Route path="/analyse/:systemId" element={<SystemAnalysePage />} />
               <Route path="/analyse/:systemId/print" element={<PrintReportPage />} />
               <Route path="/compare" element={<ComparePage />} />
