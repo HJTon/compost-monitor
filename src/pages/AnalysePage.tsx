@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, TrendingUp, GitCompareArrows } from 'lucide-react';
+import { ChevronRight, TrendingUp, GitCompareArrows, Layers, Scale, Leaf, FlaskConical } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { useCompost } from '@/contexts/CompostContext';
 import type { CompostSystem } from '@/types';
@@ -131,7 +131,67 @@ export function AnalysePage() {
           <ChevronRight size={18} className="text-green-300 shrink-0" />
         </button>
 
-        <p className="text-sm text-gray-500 mb-1">
+        {/* Cross-build analytics */}
+        <div className="pt-2">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1">
+            Cross-build analytics
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => navigate('/analyse/cohort')}
+              className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 text-left active:scale-[0.98] transition-transform"
+            >
+              <div className="w-9 h-9 rounded-lg bg-green-primary/10 flex items-center justify-center mb-2">
+                <Layers size={18} className="text-green-primary" />
+              </div>
+              <div className="text-sm font-semibold text-gray-900">Build-type cohorts</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Overlay all builds of the same type
+              </div>
+            </button>
+
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-left opacity-60 cursor-not-allowed relative">
+              <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center mb-2">
+                <Scale size={18} className="text-gray-400" />
+              </div>
+              <div className="text-sm font-semibold text-gray-700">Type vs type</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Compare two build types head-to-head
+              </div>
+              <span className="absolute top-2 right-2 text-[10px] font-medium text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 py-0.5">
+                Soon
+              </span>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-left opacity-60 cursor-not-allowed relative">
+              <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center mb-2">
+                <Leaf size={18} className="text-gray-400" />
+              </div>
+              <div className="text-sm font-semibold text-gray-700">Seasonal split</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Same type, summer vs winter
+              </div>
+              <span className="absolute top-2 right-2 text-[10px] font-medium text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 py-0.5">
+                Soon
+              </span>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-left opacity-60 cursor-not-allowed relative">
+              <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center mb-2">
+                <FlaskConical size={18} className="text-gray-400" />
+              </div>
+              <div className="text-sm font-semibold text-gray-700">Recipe correlation</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Composition vs peak / kill-days
+              </div>
+              <span className="absolute top-2 right-2 text-[10px] font-medium text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 py-0.5">
+                Soon
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-sm text-gray-500 mb-1 pt-2">
           Or select a system to view its individual analysis.
         </p>
 

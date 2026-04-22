@@ -637,12 +637,8 @@ export function SystemAnalysePage() {
                 {/* Solid actual-data lines on top, with gaps where no data */}
                 <Line type="monotone" dataKey="avg" stroke="#2D8B4E" strokeWidth={2} name="Average" dot={{ r: chartData.length > 60 ? 0 : 3 }} isAnimationActive={false} />
                 <Line type="monotone" dataKey="peak" stroke="#F59E0B" strokeWidth={2} name="Peak" dot={{ r: chartData.length > 60 ? 0 : 3 }} isAnimationActive={false} />
-                {showAmbient && (
-                  <>
-                    <Line type="monotone" dataKey="ambientMaxF" stroke="#0EA5E9" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient max" connectNulls isAnimationActive={false} />
-                    <Line type="monotone" dataKey="ambientMinF" stroke="#38BDF8" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient min" connectNulls isAnimationActive={false} />
-                  </>
-                )}
+                {showAmbient && <Line type="monotone" dataKey="ambientMaxF" stroke="#0EA5E9" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient max" connectNulls isAnimationActive={false} />}
+                {showAmbient && <Line type="monotone" dataKey="ambientMinF" stroke="#38BDF8" strokeWidth={1.5} strokeDasharray="2 3" dot={false} name="Ambient min" connectNulls isAnimationActive={false} />}
               </LineChart>
             </ResponsiveContainer>
           ) : (
