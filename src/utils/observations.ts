@@ -20,22 +20,22 @@ export interface ObservationDef {
 
 export const OBSERVATIONS: ObservationDef[] = [
   // Wildlife
-  { key: 'fruitFlies', sheetHeader: 'Fruit Flies', label: 'Fruit flies', icon: '🪰', category: 'wildlife',
+  { key: 'fruitFlies', sheetHeader: 'Fruit Flies', label: 'Fruit flies', icon: '🐝', category: 'wildlife',
     aliases: ['fruit flies', 'fruit fly', 'fruitflies'] },
-  { key: 'flies',      sheetHeader: 'Flies',       label: 'Flies',       icon: '🦟', category: 'wildlife',
+  { key: 'flies',      sheetHeader: 'Flies',       label: 'Flies',       icon: '🐛', category: 'wildlife',
     aliases: ['flies', 'fly'] }, // checked AFTER fruitFlies
-  { key: 'mites',      sheetHeader: 'Mites',       label: 'Mites',       icon: '🕷️', category: 'wildlife',
+  { key: 'mites',      sheetHeader: 'Mites',       label: 'Mites',       icon: '🕷', category: 'wildlife',
     aliases: ['mites', 'mite'] },
   { key: 'birds',      sheetHeader: 'Birds',       label: 'Birds',       icon: '🐦', category: 'wildlife',
     aliases: ['birds', 'bird'] },
   { key: 'rats',       sheetHeader: 'Rats',        label: 'Rats',        icon: '🐀', category: 'wildlife',
     aliases: ['rats', 'rat', 'rodent', 'rodents'] },
   // Plant / fungi
-  { key: 'inkyCaps',   sheetHeader: 'Inky Caps',   label: 'Inky caps',   icon: '🌫️', category: 'plantfungi',
+  { key: 'inkyCaps',   sheetHeader: 'Inky Caps',   label: 'Inky caps',   icon: '🌰', category: 'plantfungi',
     aliases: ['inky caps', 'inky cap', 'inkycap', 'coprinus'] },
   { key: 'mushrooms',  sheetHeader: 'Mushrooms',   label: 'Mushrooms',   icon: '🍄', category: 'plantfungi',
     aliases: ['mushrooms', 'mushroom'] },
-  { key: 'fungus',     sheetHeader: 'Fungus',      label: 'Fungus',      icon: '🧫', category: 'plantfungi',
+  { key: 'fungus',     sheetHeader: 'Fungus',      label: 'Fungus',      icon: '🍂', category: 'plantfungi',
     aliases: ['fungus', 'fungi', 'mycelium', 'hyphae'] },
   { key: 'seedlings',  sheetHeader: 'Seedlings',   label: 'Seedlings',   icon: '🌱', category: 'plantfungi',
     aliases: ['seedlings', 'seedling', 'sprouts', 'sprouting'] },

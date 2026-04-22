@@ -44,7 +44,7 @@ function ObservationButton({
             : 'bg-gray-50 border-gray-200 text-gray-500'
         }`}
       >
-        <div className="relative text-3xl leading-none">
+        <div className="relative text-3xl leading-none" style={{ fontFamily: "'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Twemoji Mozilla',sans-serif" }}>
           {/* Stacked icons — extra copies appear behind, slightly offset */}
           {value >= 2 && (
             <span className="absolute -left-2 -top-1 opacity-60">{icon}</span>

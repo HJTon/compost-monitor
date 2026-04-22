@@ -15,6 +15,10 @@ import { parseReadinessCSV, extractDateFromFilename, getReadinessSummary } from 
 import type { ReadinessCheck } from '@/types';
 import { WILDLIFE_OBS, PLANTFUNGI_OBS, intensitySuffix } from '@/utils/observations';
 
+// Explicit emoji font fallback — desktop browsers otherwise fall through to a
+// sans-serif without emoji glyphs and render tofu boxes
+const EMOJI_FONT = "'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Twemoji Mozilla',sans-serif";
+
 function fToC(f: number | null): number | null {
   if (f === null) return null;
   return Math.round(((f - 32) * 5) / 9 * 10) / 10;
@@ -211,7 +215,7 @@ function ChartTooltip({ active, payload, label, useCelsius, showAmbient, showWil
             if (!v) return null;
             return (
               <span key={o.key} className="text-gray-700">
-                {o.icon} {o.label}<span className="font-bold">{intensitySuffix(v)}</span>
+                <span style={{ fontFamily: EMOJI_FONT }}>{o.icon}</span> {o.label}<span className="font-bold">{intensitySuffix(v)}</span>
               </span>
             );
           })}
@@ -701,10 +705,10 @@ export function SystemAnalysePage() {
                             const intensity = pt.observations![o.key]!;
                             return (
                               <g key={o.key}>
-                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle">{o.icon}</text>}
-                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle">{o.icon}</text>}
-                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle">{o.icon}</text>}
-                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle">{o.icon}</text>
+                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
+                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
+                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
+                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>
                               </g>
                             );
                           })}
@@ -743,10 +747,10 @@ export function SystemAnalysePage() {
                             const intensity = pt.observations![o.key]!;
                             return (
                               <g key={o.key}>
-                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle">{o.icon}</text>}
-                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle">{o.icon}</text>}
-                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle">{o.icon}</text>}
-                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle">{o.icon}</text>
+                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
+                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
+                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
+                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>
                               </g>
                             );
                           })}
