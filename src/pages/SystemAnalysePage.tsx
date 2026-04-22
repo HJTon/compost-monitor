@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer, ReferenceLine, Brush,
 } from 'recharts';
 import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -285,6 +285,7 @@ export function SystemAnalysePage() {
   const [useCelsius, setUseCelsius] = useState(false);
   const [showAmbient, setShowAmbient] = useState(false);
   const [showWildlife, setShowWildlife] = useState(false);
+  const [chartExpanded, setChartExpanded] = useState(false);
   const [showPlantFungi, setShowPlantFungi] = useState(false);
   const [sheetDimensions, setSheetDimensions] = useState<{ heightCm: number | null; widthCm: number | null; lengthCm: number | null } | null>(null);
 
@@ -402,6 +403,19 @@ export function SystemAnalysePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [system?.sheetTab]);
+
+  // Lock body scroll + ESC-to-close while the chart is expanded
+  useEffect(() => {
+    if (!chartExpanded) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setChartExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [chartExpanded]);
 
   useEffect(() => {
     if (!system?.sheetTab) return;
@@ -566,9 +580,15 @@ export function SystemAnalysePage() {
         </div>
 
         {/* Temperature chart */}
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+        <div
+          className={
+            chartExpanded
+              ? 'fixed inset-0 z-50 bg-white p-4 sm:p-6 overflow-auto flex flex-col'
+              : 'bg-white rounded-xl p-4 shadow-sm border border-gray-100'
+          }
+        >
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-gray-900">Temperature</h3>
               <button
                 onClick={() => setUseCelsius(c => !c)}
@@ -597,6 +617,17 @@ export function SystemAnalysePage() {
               >
                 <span className="inline-flex items-center gap-1"><OBSERVATION_ICONS.mushrooms size={14} /> Plants/fungi</span>
               </button>
+              <button
+                onClick={() => setChartExpanded(v => !v)}
+                className="text-xs px-2.5 py-1 rounded-full font-medium bg-gray-100 text-gray-600 active:scale-95 transition-all inline-flex items-center gap-1"
+                title={chartExpanded ? 'Shrink chart (Esc)' : 'Expand chart to fullscreen'}
+              >
+                {chartExpanded ? (
+                  <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H3v-6"/><path d="M21 3h-6v6"/><path d="M3 21l7-7"/><path d="M21 3l-7 7"/></svg> Close</>
+                ) : (
+                  <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg> Expand</>
+                )}
+              </button>
             </div>
             {!loading && chartData.length > 0 && (
               <span className="text-xs text-gray-400">
@@ -605,11 +636,12 @@ export function SystemAnalysePage() {
             )}
           </div>
           {loading ? (
-            <div className="h-[250px] flex items-center justify-center">
+            <div className={chartExpanded ? 'flex-1 flex items-center justify-center' : 'h-[250px] flex items-center justify-center'}>
               <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : displayData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
+            <div className={chartExpanded ? 'flex-1 min-h-0' : ''}>
+            <ResponsiveContainer width="100%" height={chartExpanded ? '100%' : 250} minHeight={chartExpanded ? 400 : 250}>
               <LineChart data={displayData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={40} />
@@ -783,8 +815,17 @@ export function SystemAnalysePage() {
                     connectNulls
                   />
                 )}
+                <Brush
+                  dataKey="date"
+                  height={20}
+                  travellerWidth={8}
+                  stroke="#9CA3AF"
+                  fill="#F9FAFB"
+                  tickFormatter={() => ''}
+                />
               </LineChart>
             </ResponsiveContainer>
+            </div>
           ) : (
             <div className="h-[250px] flex items-center justify-center text-gray-400 text-sm">
               No data in spreadsheet yet
