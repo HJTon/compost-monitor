@@ -163,18 +163,18 @@ export function AnalysePage() {
               </div>
             </button>
 
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-left opacity-60 cursor-not-allowed relative">
-              <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center mb-2">
-                <Leaf size={18} className="text-gray-400" />
+            <button
+              onClick={() => navigate('/analyse/seasonal')}
+              className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 text-left active:scale-[0.98] transition-transform"
+            >
+              <div className="w-9 h-9 rounded-lg bg-green-primary/10 flex items-center justify-center mb-2">
+                <Leaf size={18} className="text-green-primary" />
               </div>
-              <div className="text-sm font-semibold text-gray-700">Seasonal split</div>
+              <div className="text-sm font-semibold text-gray-900">Seasonal split</div>
               <div className="text-xs text-gray-500 mt-0.5">
                 Same type, summer vs winter
               </div>
-              <span className="absolute top-2 right-2 text-[10px] font-medium text-gray-500 bg-white border border-gray-200 rounded-full px-1.5 py-0.5">
-                Soon
-              </span>
-            </div>
+            </button>
 
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-left opacity-60 cursor-not-allowed relative">
               <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center mb-2">
