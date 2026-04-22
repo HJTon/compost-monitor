@@ -14,10 +14,7 @@ import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/vol
 import { parseReadinessCSV, extractDateFromFilename, getReadinessSummary } from '@/utils/readinessParser';
 import type { ReadinessCheck } from '@/types';
 import { WILDLIFE_OBS, PLANTFUNGI_OBS, intensitySuffix } from '@/utils/observations';
-
-// Explicit emoji font fallback — desktop browsers otherwise fall through to a
-// sans-serif without emoji glyphs and render tofu boxes
-const EMOJI_FONT = "'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Twemoji Mozilla',sans-serif";
+import { OBSERVATION_ICONS } from '@/assets/observationIcons';
 
 function fToC(f: number | null): number | null {
   if (f === null) return null;
@@ -213,9 +210,10 @@ function ChartTooltip({ active, payload, label, useCelsius, showAmbient, showWil
           {(showWildlife ? WILDLIFE_OBS : []).concat(showPlantFungi ? PLANTFUNGI_OBS : []).map(o => {
             const v = point.observations?.[o.key];
             if (!v) return null;
+            const Icon = OBSERVATION_ICONS[o.key];
             return (
-              <span key={o.key} className="text-gray-700">
-                <span style={{ fontFamily: EMOJI_FONT }}>{o.icon}</span> {o.label}<span className="font-bold">{intensitySuffix(v)}</span>
+              <span key={o.key} className="text-gray-700 inline-flex items-center gap-1">
+                <Icon size={14} /> {o.label}<span className="font-bold">{intensitySuffix(v)}</span>
               </span>
             );
           })}
@@ -559,14 +557,14 @@ export function SystemAnalysePage() {
                 className={`text-xs px-2.5 py-1 rounded-full font-medium active:scale-95 transition-all ${showWildlife ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-gray-100 text-gray-600'}`}
                 title="Toggle wildlife observation icons"
               >
-                🐀 Wildlife
+                <span className="inline-flex items-center gap-1"><OBSERVATION_ICONS.rats size={14} /> Wildlife</span>
               </button>
               <button
                 onClick={() => setShowPlantFungi(v => !v)}
                 className={`text-xs px-2.5 py-1 rounded-full font-medium active:scale-95 transition-all ${showPlantFungi ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-600'}`}
                 title="Toggle plant &amp; fungi observation icons"
               >
-                🍄 Plants/fungi
+                <span className="inline-flex items-center gap-1"><OBSERVATION_ICONS.mushrooms size={14} /> Plants/fungi</span>
               </button>
             </div>
             {!loading && chartData.length > 0 && (
@@ -694,21 +692,24 @@ export function SystemAnalysePage() {
                       if (!pt?.observations) return <g />;
                       const visible = WILDLIFE_OBS.filter(o => (pt.observations![o.key] ?? 0) > 0);
                       if (visible.length === 0) return <g />;
-                      const spacing = 16;
-                      const baseY = 14;
+                      const ICON = 14;
+                      const spacing = ICON + 2;
+                      const baseY = 6;
                       const totalWidth = (visible.length - 1) * spacing;
                       return (
                         <g key={`wildlife-${index}`}>
-                          <line x1={cx} y1={cy} x2={cx} y2={baseY + 6} stroke="#D97706" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
+                          <line x1={cx} y1={cy} x2={cx} y2={baseY + ICON + 2} stroke="#D97706" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
                           {visible.map((o, i) => {
                             const x = cx - totalWidth / 2 + i * spacing;
                             const intensity = pt.observations![o.key]!;
+                            const Icon = OBSERVATION_ICONS[o.key];
                             return (
                               <g key={o.key}>
-                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
-                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
-                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
-                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>
+                                {intensity >= 2 && <Icon x={x - ICON/2 - 3} y={baseY - 1} size={ICON} opacity={0.55} />}
+                                <Icon x={x - ICON/2} y={baseY} size={ICON} />
+                                {intensity >= 3 && (
+                                  <text x={x + ICON/2 + 1} y={baseY + ICON - 1} fontSize={9} fontWeight={700} fill="#9A3412">{intensitySuffix(intensity)}</text>
+                                )}
                               </g>
                             );
                           })}
@@ -735,22 +736,25 @@ export function SystemAnalysePage() {
                       if (!pt?.observations) return <g />;
                       const visible = PLANTFUNGI_OBS.filter(o => (pt.observations![o.key] ?? 0) > 0);
                       if (visible.length === 0) return <g />;
-                      const spacing = 16;
+                      const ICON = 14;
+                      const spacing = ICON + 2;
                       // Plant/fungi row sits just below wildlife row to avoid overlap
-                      const baseY = showWildlife ? 32 : 14;
+                      const baseY = showWildlife ? 26 : 6;
                       const totalWidth = (visible.length - 1) * spacing;
                       return (
                         <g key={`plantfungi-${index}`}>
-                          <line x1={cx} y1={cy} x2={cx} y2={baseY + 6} stroke="#059669" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
+                          <line x1={cx} y1={cy} x2={cx} y2={baseY + ICON + 2} stroke="#059669" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
                           {visible.map((o, i) => {
                             const x = cx - totalWidth / 2 + i * spacing;
                             const intensity = pt.observations![o.key]!;
+                            const Icon = OBSERVATION_ICONS[o.key];
                             return (
                               <g key={o.key}>
-                                {intensity >= 2 && <text x={x - 4} y={baseY - 2} fontSize={11} opacity={0.45} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
-                                {intensity >= 3 && <text x={x + 4} y={baseY - 2} fontSize={11} opacity={0.35} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
-                                {intensity >= 4 && <text x={x} y={baseY + 4} fontSize={10} opacity={0.3} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>}
-                                <text x={x} y={baseY + 4} fontSize={13} textAnchor="middle" fontFamily={EMOJI_FONT}>{o.icon}</text>
+                                {intensity >= 2 && <Icon x={x - ICON/2 - 3} y={baseY - 1} size={ICON} opacity={0.55} />}
+                                <Icon x={x - ICON/2} y={baseY} size={ICON} />
+                                {intensity >= 3 && (
+                                  <text x={x + ICON/2 + 1} y={baseY + ICON - 1} fontSize={9} fontWeight={700} fill="#065F46">{intensitySuffix(intensity)}</text>
+                                )}
                               </g>
                             );
                           })}

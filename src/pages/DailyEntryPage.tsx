@@ -17,6 +17,8 @@ import {
 } from '@/utils/config';
 import type { DailyEntry, WeatherCondition, MoistureLevel, OdourLevel, ProbeReading, MediaItem, Observations } from '@/types';
 import { WILDLIFE_OBS, PLANTFUNGI_OBS, MAX_INTENSITY, intensitySuffix } from '@/utils/observations';
+import { OBSERVATION_ICONS, type IconProps } from '@/assets/observationIcons';
+import type { ComponentType } from 'react';
 
 const WEATHER_OPTIONS: WeatherCondition[] = ['Sunny', 'Cloudy', 'Overcast', 'Rain', 'Wind', 'Frost'];
 const MOISTURE_OPTIONS: MoistureLevel[] = ['Dry', 'Good', 'Wet'];
@@ -29,10 +31,12 @@ const ODOUR_OPTIONS: { value: OdourLevel; emoji: string; label: string }[] = [
 ];
 
 function ObservationButton({
-  icon, label, value, onChange,
-}: { icon: string; label: string; value: number; onChange: (v: number) => void }) {
+  Icon, label, value, onChange, inactive,
+}: { Icon: ComponentType<IconProps>; label: string; value: number; onChange: (v: number) => void; inactive?: boolean }) {
+  void inactive;
   const active = value > 0;
   const suffix = intensitySuffix(value);
+  const ICON_SIZE = 36;
   return (
     <div className="relative">
       <button
@@ -40,24 +44,24 @@ function ObservationButton({
         onClick={() => onChange(Math.min(MAX_INTENSITY, value + 1))}
         className={`w-full aspect-square flex flex-col items-center justify-center rounded-xl border transition-all active:scale-95 ${
           active
-            ? 'bg-green-50 border-green-primary text-green-primary shadow-sm'
-            : 'bg-gray-50 border-gray-200 text-gray-500'
+            ? 'bg-green-50 border-green-primary shadow-sm'
+            : 'bg-gray-50 border-gray-200 opacity-70'
         }`}
       >
-        <div className="relative text-3xl leading-none" style={{ fontFamily: "'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji','Twemoji Mozilla',sans-serif" }}>
+        <div className="relative" style={{ width: ICON_SIZE, height: ICON_SIZE }}>
           {/* Stacked icons — extra copies appear behind, slightly offset */}
           {value >= 2 && (
-            <span className="absolute -left-2 -top-1 opacity-60">{icon}</span>
+            <div className="absolute" style={{ left: -6, top: -3, opacity: 0.55 }}><Icon size={ICON_SIZE} /></div>
           )}
           {value >= 3 && (
-            <span className="absolute -right-2 -top-1 opacity-40">{icon}</span>
+            <div className="absolute" style={{ right: -6, top: -3, opacity: 0.4 }}><Icon size={ICON_SIZE} /></div>
           )}
           {value >= 4 && (
-            <span className="absolute left-0 top-2 opacity-30">{icon}</span>
+            <div className="absolute" style={{ left: 0, top: 4, opacity: 0.3 }}><Icon size={ICON_SIZE} /></div>
           )}
-          <span className="relative">{icon}</span>
+          <div className="relative"><Icon size={ICON_SIZE} /></div>
         </div>
-        <div className="text-[11px] font-medium mt-1 leading-tight text-center px-1">
+        <div className={`text-[11px] font-medium mt-1 leading-tight text-center px-1 ${active ? 'text-green-primary' : 'text-gray-500'}`}>
           {label}{suffix && <span className="ml-0.5 font-bold">{suffix}</span>}
         </div>
       </button>
@@ -701,7 +705,7 @@ export function DailyEntryPage() {
               {WILDLIFE_OBS.map(o => (
                 <ObservationButton
                   key={o.key}
-                  icon={o.icon}
+                  Icon={OBSERVATION_ICONS[o.key]}
                   label={o.label}
                   value={(entry.observations?.[o.key]) || 0}
                   onChange={(v) => {
@@ -721,7 +725,7 @@ export function DailyEntryPage() {
               {PLANTFUNGI_OBS.map(o => (
                 <ObservationButton
                   key={o.key}
-                  icon={o.icon}
+                  Icon={OBSERVATION_ICONS[o.key]}
                   label={o.label}
                   value={(entry.observations?.[o.key]) || 0}
                   onChange={(v) => {
