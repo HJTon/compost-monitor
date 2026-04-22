@@ -143,10 +143,42 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         getAllCustomSystems(),
         getAllBusinesses(),
       ]);
+      // Purge any stored custom systems that are actually shared-meta sheet
+      // tabs (Build Info, Sampling Log, Media, etc.) — older installs may have
+      // auto-discovered them as "builds" before the exclude list was extended.
+      const EXCLUDED_NAMES = new Set([
+        'build info', 'build phases', 'sampling log', 'media',
+        'bin tracker', 'system setup', 'score card', 'scorecard', 'template',
+      ]);
+      const cleanCustomSystems: CompostSystem[] = [];
+      const purgedIds: string[] = [];
+      for (const s of storedCustomSystems) {
+        const key = (s.sheetTab || s.name || '').toLowerCase().trim();
+        if (EXCLUDED_NAMES.has(key)) {
+          purgedIds.push(s.id);
+          await deleteCustomSystem(s.id);
+        } else {
+          cleanCustomSystems.push(s);
+        }
+      }
+      if (purgedIds.length > 0) {
+        appSettings.activeSystems = appSettings.activeSystems.filter(id => !purgedIds.includes(id));
+        await dbSaveSettings(appSettings);
+      }
+
+      // Migrate users still on the old coastal default coords (-39.1672, 174.0955)
+      // to the actual farm location up the mountain.
+      if (Math.abs(appSettings.farmLatitude - (-39.1672)) < 1e-4
+          && Math.abs(appSettings.farmLongitude - 174.0955) < 1e-4) {
+        appSettings.farmLatitude = -39.18598;
+        appSettings.farmLongitude = 174.078433;
+        await dbSaveSettings(appSettings);
+      }
+
       setEntries(allEntries);
       setSettings(appSettings);
       setPendingCount(count);
-      setCustomSystems(storedCustomSystems);
+      setCustomSystems(cleanCustomSystems);
       setBusinesses(storedBusinesses);
 
       // Load phase data from the Build Phases sheet tab (when online)
@@ -161,8 +193,8 @@ export function CompostProvider({ children }: { children: ReactNode }) {
               const byName = new Map(phases.map(p => [p.system, p]));
               const updated: CompostSystem[] = [];
               // Hardcoded + already-stored systems may need phase data merged in
-              const knownSystems = [...COMPOST_SYSTEMS, ...storedCustomSystems];
-              const customById = new Map(storedCustomSystems.map(s => [s.id, s]));
+              const knownSystems = [...COMPOST_SYSTEMS, ...cleanCustomSystems];
+              const customById = new Map(cleanCustomSystems.map(s => [s.id, s]));
               for (const sys of knownSystems) {
                 const p = byName.get(sys.name);
                 if (!p) continue;
@@ -208,8 +240,8 @@ export function CompostProvider({ children }: { children: ReactNode }) {
               mulchType: string; dimensions: unknown; probeLabels: string[] | null;
             }> = data.infos || [];
             const byName = new Map(infos.map(i => [i.system, i]));
-            const knownSystems = [...COMPOST_SYSTEMS, ...storedCustomSystems];
-            const customById = new Map(storedCustomSystems.map(s => [s.id, s]));
+            const knownSystems = [...COMPOST_SYSTEMS, ...cleanCustomSystems];
+            const customById = new Map(cleanCustomSystems.map(s => [s.id, s]));
 
             // 1) Merge sheet → local where sheet has data
             const merged: CompostSystem[] = [];
@@ -287,7 +319,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
             // Build a set of all tab names we already know about
             const knownTabs = new Set<string>();
             for (const s of COMPOST_SYSTEMS) knownTabs.add(s.sheetTab.trim());
-            for (const s of storedCustomSystems) knownTabs.add(s.sheetTab.trim());
+            for (const s of cleanCustomSystems) knownTabs.add(s.sheetTab.trim());
 
             const newSystems: CompostSystem[] = [];
             for (const d of discovered) {

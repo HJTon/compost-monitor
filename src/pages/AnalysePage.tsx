@@ -41,9 +41,6 @@ function BuildCard({ system, summary }: { system: CompostSystem; summary?: Build
     parts.push(system.buildType);
   }
 
-  // Probes
-  parts.push(`${system.probeLabels.length} probes`);
-
   return (
     <div className="text-xs text-gray-400 mt-0.5 flex flex-wrap gap-x-1.5">
       {parts.map((p, i) => (

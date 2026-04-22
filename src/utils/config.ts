@@ -109,8 +109,8 @@ export const DEFAULT_TRIAL_CROPS = [
 export const DEFAULT_SETTINGS: AppSettings = {
   entryMode: 'stepper',
   activeSystems: COMPOST_SYSTEMS.map(s => s.id),
-  farmLatitude: -39.1672,
-  farmLongitude: 174.0955,
+  farmLatitude: -39.18598,
+  farmLongitude: 174.078433,
   lastSyncTime: null,
   customBuildTypes: [],
   customMulchTypes: [],

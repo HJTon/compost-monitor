@@ -14,6 +14,10 @@ const EXCLUDED_TABS = new Set([
   'score card',
   'scorecard',
   'template',
+  'build info',
+  'build phases',
+  'sampling log',
+  'media',
 ]);
 
 function getGoogleSheetsClient() {

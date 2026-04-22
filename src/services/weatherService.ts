@@ -20,7 +20,7 @@ export async function fetchWeather(lat: number, lon: number, date: string): Prom
 
   // Try fetching from our Netlify proxy (avoids CORS)
   try {
-    const res = await fetch(`/.netlify/functions/compost-weather?lat=${lat}&lon=${lon}`);
+    const res = await fetch(`/.netlify/functions/compost-weather?lat=${lat}&lon=${lon}&date=${encodeURIComponent(date)}`);
     if (!res.ok) throw new Error(`Weather API error: ${res.status}`);
     const data = await res.json();
 
