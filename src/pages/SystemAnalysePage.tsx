@@ -15,6 +15,37 @@ import { parseReadinessCSV, extractDateFromFilename, getReadinessSummary } from 
 import type { ReadinessCheck } from '@/types';
 import { WILDLIFE_OBS, PLANTFUNGI_OBS, intensitySuffix } from '@/utils/observations';
 import { OBSERVATION_ICONS } from '@/assets/observationIcons';
+import type { ReactNode } from 'react';
+import type { ObservationDef } from '@/utils/observations';
+
+// Compute slot widths for chart icon glyphs — fruit flies widen with count,
+// others widen linearly per intensity (1 copy at intensity=1, up to 4 at =4).
+function renderObsSlotWidth(visible: ObservationDef[], obs: Record<string, number>, iconSize: number): { widths: number[]; total: number } {
+  const widths = visible.map(o => {
+    const intensity = obs[o.key] || 1;
+    if (o.key === 'fruitFlies') return iconSize + 2; // dots fit in one icon
+    // Multi-copy glyphs: 1 icon for intensity 1, up to 4 for 4, overlap by 4px each
+    const n = Math.min(4, Math.max(1, intensity));
+    return iconSize + (n - 1) * (iconSize - 4) + 2;
+  });
+  const total = widths.reduce((a, b) => a + b, 0);
+  return { widths, total };
+}
+
+function renderIntensityGlyph(key: string, intensity: number, startX: number, baseY: number, iconSize: number): ReactNode {
+  const Icon = OBSERVATION_ICONS[key as keyof typeof OBSERVATION_ICONS];
+  if (key === 'fruitFlies') {
+    const count = 1 + 2 * Math.min(4, Math.max(1, intensity)); // 3,5,7,9
+    return <Icon x={startX} y={baseY} size={iconSize} count={count} />;
+  }
+  const n = Math.min(4, Math.max(1, intensity));
+  const step = iconSize - 4; // overlap 4px
+  const nodes: ReactNode[] = [];
+  for (let i = 0; i < n; i++) {
+    nodes.push(<Icon key={i} x={startX + i * step} y={baseY} size={iconSize} />);
+  }
+  return <>{nodes}</>;
+}
 
 function fToC(f: number | null): number | null {
   if (f === null) return null;
@@ -693,25 +724,18 @@ export function SystemAnalysePage() {
                       const visible = WILDLIFE_OBS.filter(o => (pt.observations![o.key] ?? 0) > 0);
                       if (visible.length === 0) return <g />;
                       const ICON = 14;
-                      const spacing = ICON + 2;
+                      const slotW = renderObsSlotWidth(visible, pt.observations!, ICON);
                       const baseY = 6;
-                      const totalWidth = (visible.length - 1) * spacing;
+                      let cursor = cx - slotW.total / 2;
                       return (
                         <g key={`wildlife-${index}`}>
                           <line x1={cx} y1={cy} x2={cx} y2={baseY + ICON + 2} stroke="#D97706" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
                           {visible.map((o, i) => {
-                            const x = cx - totalWidth / 2 + i * spacing;
                             const intensity = pt.observations![o.key]!;
-                            const Icon = OBSERVATION_ICONS[o.key];
-                            return (
-                              <g key={o.key}>
-                                {intensity >= 2 && <Icon x={x - ICON/2 - 3} y={baseY - 1} size={ICON} opacity={0.55} />}
-                                <Icon x={x - ICON/2} y={baseY} size={ICON} />
-                                {intensity >= 3 && (
-                                  <text x={x + ICON/2 + 1} y={baseY + ICON - 1} fontSize={9} fontWeight={700} fill="#9A3412">{intensitySuffix(intensity)}</text>
-                                )}
-                              </g>
-                            );
+                            const w = slotW.widths[i];
+                            const nodes = renderIntensityGlyph(o.key, intensity, cursor, baseY, ICON);
+                            cursor += w;
+                            return <g key={o.key}>{nodes}</g>;
                           })}
                         </g>
                       );
@@ -737,26 +761,19 @@ export function SystemAnalysePage() {
                       const visible = PLANTFUNGI_OBS.filter(o => (pt.observations![o.key] ?? 0) > 0);
                       if (visible.length === 0) return <g />;
                       const ICON = 14;
-                      const spacing = ICON + 2;
                       // Plant/fungi row sits just below wildlife row to avoid overlap
                       const baseY = showWildlife ? 26 : 6;
-                      const totalWidth = (visible.length - 1) * spacing;
+                      const slotW = renderObsSlotWidth(visible, pt.observations!, ICON);
+                      let cursor = cx - slotW.total / 2;
                       return (
                         <g key={`plantfungi-${index}`}>
                           <line x1={cx} y1={cy} x2={cx} y2={baseY + ICON + 2} stroke="#059669" strokeWidth={1} strokeDasharray="2 2" opacity={0.5} />
                           {visible.map((o, i) => {
-                            const x = cx - totalWidth / 2 + i * spacing;
                             const intensity = pt.observations![o.key]!;
-                            const Icon = OBSERVATION_ICONS[o.key];
-                            return (
-                              <g key={o.key}>
-                                {intensity >= 2 && <Icon x={x - ICON/2 - 3} y={baseY - 1} size={ICON} opacity={0.55} />}
-                                <Icon x={x - ICON/2} y={baseY} size={ICON} />
-                                {intensity >= 3 && (
-                                  <text x={x + ICON/2 + 1} y={baseY + ICON - 1} fontSize={9} fontWeight={700} fill="#065F46">{intensitySuffix(intensity)}</text>
-                                )}
-                              </g>
-                            );
+                            const w = slotW.widths[i];
+                            const nodes = renderIntensityGlyph(o.key, intensity, cursor, baseY, ICON);
+                            cursor += w;
+                            return <g key={o.key}>{nodes}</g>;
                           })}
                         </g>
                       );

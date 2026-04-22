@@ -86,8 +86,8 @@ interface ColMap {
   ventCol: number;
   visualCol: number;
   generalCol: number;
-  /** Mapping of observation key → column index. Missing keys = column absent. */
-  observationCols: Partial<Record<string, number>>;
+  /** Mapping of observation key → column indices (array so legacy+canonical columns can coexist during migration). Missing keys = column absent. */
+  observationCols: Partial<Record<string, number[]>>;
 }
 
 function detectColumns(headerRow: string[], probeCount: number): ColMap {
@@ -122,11 +122,19 @@ function detectColumns(headerRow: string[], probeCount: number): ColMap {
     if (noteIdx >= 0) generalCol = noteIdx;
   }
 
-  // Observation columns — matched by header name
-  const observationCols: Partial<Record<string, number>> = {};
+  // Observation columns — matched by header name. A tab may briefly carry
+  // BOTH a canonical ("Ink Caps") and a legacy ("Inky Caps") column side-by-
+  // side while data is being migrated, so we track every match and take the
+  // max value at read time. First-match order in OBSERVATION_KEYS is the
+  // preferred canonical, but values from all matches are merged.
+  const observationCols: Partial<Record<string, number[]>> = {};
   for (const { header, key } of OBSERVATION_KEYS) {
-    const idx = h.findIndex(c => c === header);
-    if (idx >= 0) observationCols[key] = idx;
+    for (let i = 0; i < h.length; i++) {
+      if (h[i] === header) {
+        if (!observationCols[key]) observationCols[key] = [];
+        if (!observationCols[key]!.includes(i)) observationCols[key]!.push(i);
+      }
+    }
   }
 
   return {
@@ -166,14 +174,20 @@ function parseRow(row: string[], probeCount: number, cols: ColMap): ParsedEntry 
     return isNaN(n) ? null : n;
   };
 
-  // Observations: read each column into an integer intensity if > 0
+  // Observations: read each column into an integer intensity. When multiple
+  // columns map to the same key (canonical + legacy during migration), take
+  // the max value so whichever column the data ended up in is surfaced.
   let observations: Record<string, number> | undefined;
-  for (const [key, idx] of Object.entries(cols.observationCols)) {
-    if (idx === undefined) continue;
-    const v = parseNum(row[idx]);
-    if (v !== null && v > 0) {
+  for (const [key, idxList] of Object.entries(cols.observationCols)) {
+    if (!idxList || idxList.length === 0) continue;
+    let best = 0;
+    for (const idx of idxList) {
+      const v = parseNum(row[idx]);
+      if (v !== null && v > best) best = Math.round(v);
+    }
+    if (best > 0) {
       if (!observations) observations = {};
-      observations[key] = Math.round(v);
+      observations[key] = best;
     }
   }
 

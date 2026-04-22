@@ -13,6 +13,8 @@ export interface IconProps {
   opacity?: number;
   className?: string;
   title?: string;
+  /** Optional override used by icons that vary by count (fruit flies). */
+  count?: number;
 }
 
 function svgProps(p: IconProps, size: number) {
@@ -30,21 +32,25 @@ function svgProps(p: IconProps, size: number) {
 
 // ---- Wildlife ---------------------------------------------------------
 
+// Deterministic "jittered" positions for up to 9 dots (intensity 1..4 → 3,5,7,9).
+// Hand-picked to look natural and stay inside the 24×24 viewBox.
+const FRUIT_FLY_DOTS: Array<[number, number]> = [
+  [8, 9], [15, 7], [12, 14],           // 3 — base
+  [5, 14], [18, 13],                   // +2 → 5
+  [10, 5], [17, 18],                   // +2 → 7
+  [6, 19], [20, 5],                    // +2 → 9
+];
+
 export const FruitFlyIcon: ComponentType<IconProps> = (p) => {
   const s = p.size ?? 24;
+  const n = Math.max(3, Math.min(FRUIT_FLY_DOTS.length, p.count ?? 3));
+  const r = n > 7 ? 1.4 : n > 5 ? 1.6 : 1.8;
   return (
     <svg {...svgProps(p, s)}>
       {p.title && <title>{p.title}</title>}
-      {/* translucent wings */}
-      <ellipse cx="7" cy="10.5" rx="3.2" ry="1.6" fill="#CDE7F2" opacity="0.75" transform="rotate(-20 7 10.5)" />
-      <ellipse cx="17" cy="10.5" rx="3.2" ry="1.6" fill="#CDE7F2" opacity="0.75" transform="rotate(20 17 10.5)" />
-      {/* body */}
-      <ellipse cx="12" cy="13" rx="3.4" ry="4.6" fill="#8B6F47" />
-      <path d="M 9 13 Q 12 14.5 15 13" stroke="#5D4428" strokeWidth="0.6" fill="none" />
-      {/* distinctive red fruit-fly eyes */}
-      <circle cx="10.3" cy="9.2" r="1.7" fill="#D11A1A" />
-      <circle cx="13.7" cy="9.2" r="1.7" fill="#D11A1A" />
-      <circle cx="10.5" cy="8.9" r="0.45" fill="#fff" opacity="0.9" />
+      {FRUIT_FLY_DOTS.slice(0, n).map(([cx, cy], i) => (
+        <circle key={i} cx={cx} cy={cy} r={r} fill="#1A1A1A" />
+      ))}
     </svg>
   );
 };

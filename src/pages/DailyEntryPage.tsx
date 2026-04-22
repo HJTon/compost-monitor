@@ -31,12 +31,13 @@ const ODOUR_OPTIONS: { value: OdourLevel; emoji: string; label: string }[] = [
 ];
 
 function ObservationButton({
-  Icon, label, value, onChange, inactive,
-}: { Icon: ComponentType<IconProps>; label: string; value: number; onChange: (v: number) => void; inactive?: boolean }) {
-  void inactive;
+  Icon, label, value, onChange, isDotIcon,
+}: { Icon: ComponentType<IconProps>; label: string; value: number; onChange: (v: number) => void; isDotIcon?: boolean }) {
   const active = value > 0;
   const suffix = intensitySuffix(value);
   const ICON_SIZE = 36;
+  // Fruit flies — dot count encodes intensity directly, no stacking needed
+  const dotCount = isDotIcon ? 1 + 2 * Math.max(1, value) : undefined;
   return (
     <div className="relative">
       <button
@@ -49,17 +50,22 @@ function ObservationButton({
         }`}
       >
         <div className="relative" style={{ width: ICON_SIZE, height: ICON_SIZE }}>
-          {/* Stacked icons — extra copies appear behind, slightly offset */}
-          {value >= 2 && (
-            <div className="absolute" style={{ left: -6, top: -3, opacity: 0.55 }}><Icon size={ICON_SIZE} /></div>
+          {isDotIcon ? (
+            <Icon size={ICON_SIZE} count={dotCount} />
+          ) : (
+            <>
+              {value >= 2 && (
+                <div className="absolute" style={{ left: -6, top: -3, opacity: 0.55 }}><Icon size={ICON_SIZE} /></div>
+              )}
+              {value >= 3 && (
+                <div className="absolute" style={{ right: -6, top: -3, opacity: 0.4 }}><Icon size={ICON_SIZE} /></div>
+              )}
+              {value >= 4 && (
+                <div className="absolute" style={{ left: 0, top: 4, opacity: 0.3 }}><Icon size={ICON_SIZE} /></div>
+              )}
+              <div className="relative"><Icon size={ICON_SIZE} /></div>
+            </>
           )}
-          {value >= 3 && (
-            <div className="absolute" style={{ right: -6, top: -3, opacity: 0.4 }}><Icon size={ICON_SIZE} /></div>
-          )}
-          {value >= 4 && (
-            <div className="absolute" style={{ left: 0, top: 4, opacity: 0.3 }}><Icon size={ICON_SIZE} /></div>
-          )}
-          <div className="relative"><Icon size={ICON_SIZE} /></div>
         </div>
         <div className={`text-[11px] font-medium mt-1 leading-tight text-center px-1 ${active ? 'text-green-primary' : 'text-gray-500'}`}>
           {label}{suffix && <span className="ml-0.5 font-bold">{suffix}</span>}
@@ -706,6 +712,7 @@ export function DailyEntryPage() {
                 <ObservationButton
                   key={o.key}
                   Icon={OBSERVATION_ICONS[o.key]}
+                  isDotIcon={o.key === 'fruitFlies'}
                   label={o.label}
                   value={(entry.observations?.[o.key]) || 0}
                   onChange={(v) => {
@@ -726,6 +733,7 @@ export function DailyEntryPage() {
                 <ObservationButton
                   key={o.key}
                   Icon={OBSERVATION_ICONS[o.key]}
+                  isDotIcon={o.key === 'fruitFlies'}
                   label={o.label}
                   value={(entry.observations?.[o.key]) || 0}
                   onChange={(v) => {
