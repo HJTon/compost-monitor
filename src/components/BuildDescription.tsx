@@ -18,11 +18,9 @@ interface BuildInfoDoc {
 export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
   const [info, setInfo] = useState<BuildInfoDoc | null>(null);
   const [notesDraft, setNotesDraft] = useState('');
-  const [summaryDraft, setSummaryDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [savingNotes, setSavingNotes] = useState(false);
-  const [savingSummary, setSavingSummary] = useState(false);
-  const [justSaved, setJustSaved] = useState<'notes' | 'summary' | null>(null);
+  const [justSaved, setJustSaved] = useState<'notes' | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +34,6 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
         if (data.success && data.info) {
           setInfo(data.info);
           setNotesDraft(data.info.notes || '');
-          setSummaryDraft(data.info.summary || '');
         }
       } catch { /* silent */ }
       finally { if (!cancelled) setLoading(false); }
@@ -45,9 +42,8 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
     return () => { cancelled = true; };
   }, [system.name]);
 
-  async function save(field: 'notes' | 'summary', value: string) {
-    const setSaving = field === 'notes' ? setSavingNotes : setSavingSummary;
-    setSaving(true);
+  async function save(field: 'notes', value: string) {
+    setSavingNotes(true);
     try {
       const res = await fetch('/.netlify/functions/compost-build-info', {
         method: 'POST',
@@ -61,12 +57,11 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
         setTimeout(() => setJustSaved(v => (v === field ? null : v)), 1500);
       }
     } finally {
-      setSaving(false);
+      setSavingNotes(false);
     }
   }
 
   const notesChanged = info !== null && notesDraft !== (info.notes || '');
-  const summaryChanged = info !== null && summaryDraft !== (info.summary || '');
 
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-4">
@@ -90,7 +85,7 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
           value={notesDraft}
           onChange={e => setNotesDraft(e.target.value)}
           placeholder={readOnly ? 'No notes recorded' : ''}
-          rows={4}
+          rows={8}
           readOnly={readOnly || loading}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-green-primary resize-y disabled:bg-gray-50 read-only:bg-gray-50 read-only:cursor-default"
         />
@@ -106,37 +101,19 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
             </button>
           </div>
         )}
-      </div>
-
-      {/* Summary */}
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Summary</label>
-          {justSaved === 'summary' && (
-            <span className="text-xs text-green-600 flex items-center gap-1"><Check size={12} /> Saved</span>
-          )}
-        </div>
-        <textarea
-          value={summaryDraft}
-          onChange={e => setSummaryDraft(e.target.value)}
-          placeholder={readOnly ? 'No summary recorded' : ''}
-          rows={4}
-          readOnly={readOnly || loading}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-green-primary resize-y disabled:bg-gray-50 read-only:bg-gray-50 read-only:cursor-default"
-        />
-        {!readOnly && summaryChanged && (
-          <div className="mt-2 flex justify-end">
-            <button
-              onClick={() => save('summary', summaryDraft)}
-              disabled={savingSummary}
-              className="px-3 py-1.5 rounded-lg bg-green-primary text-white text-sm flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {savingSummary ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              Save summary
-            </button>
+        {info?.updatedAt && (
+          <div className="mt-2 text-[11px] text-gray-400 text-right">
+            Last updated {formatUpdatedAt(info.updatedAt)}
           </div>
         )}
       </div>
+
     </div>
   );
+}
+
+function formatUpdatedAt(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
