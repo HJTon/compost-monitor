@@ -1,6 +1,7 @@
 import type { DailyEntry, SyncQueueItem } from '@/types';
 import { getEntry, saveEntry, getMediaItem, getMediaByEntry, saveMedia, addToSyncQueue, getPendingSyncItems, updateSyncItem, removeSyncItem, getAllCustomSystems } from './db';
 import { generateId, COMPOST_SYSTEMS } from '@/utils/config';
+import { compressImage } from '@/utils/imageCompress';
 
 // Resolve the Google Sheet tab name for a system ID.
 // Checks hardcoded systems first, then custom systems in IndexedDB.
@@ -24,6 +25,11 @@ async function resolveSystemName(systemId: string): Promise<string | null> {
 }
 
 const MAX_RETRIES = 5;
+
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const res = await fetch(dataUrl);
+  return res.blob();
+}
 
 export async function queueEntrySync(entry: DailyEntry): Promise<void> {
   const item: SyncQueueItem = {
@@ -59,7 +65,28 @@ async function syncMediaToDrive(mediaId: string): Promise<boolean> {
     if (!media) return false;
 
     let mediaData: string;
-    if (media.base64) {
+    let mimeType: string = media.mimeType;
+
+    // Prefer compressing from the raw blob; fall back to the base64 if that's all we have.
+    // Skip compression for videos — we only downscale still images.
+    const isImage = media.mimeType?.startsWith('image/');
+    if (media.blob && isImage) {
+      const compressed = await compressImage(media.blob);
+      if (compressed.compressed) {
+        console.log(`Compressed ${media.filename}: ${(compressed.originalBytes / 1024 / 1024).toFixed(1)} MB → ${(compressed.finalBytes / 1024 / 1024).toFixed(1)} MB`);
+      }
+      mediaData = compressed.base64;
+      mimeType = compressed.mimeType;
+    } else if (media.base64 && isImage) {
+      // Convert base64 → blob → compress, so offline-queued entries benefit too
+      const blob = await dataUrlToBlob(media.base64);
+      const compressed = await compressImage(blob);
+      if (compressed.compressed) {
+        console.log(`Compressed ${media.filename}: ${(compressed.originalBytes / 1024 / 1024).toFixed(1)} MB → ${(compressed.finalBytes / 1024 / 1024).toFixed(1)} MB`);
+      }
+      mediaData = compressed.base64;
+      mimeType = compressed.mimeType;
+    } else if (media.base64) {
       mediaData = media.base64;
     } else if (media.blob) {
       mediaData = await new Promise<string>((resolve, reject) => {
@@ -82,7 +109,7 @@ async function syncMediaToDrive(mediaId: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mediaData,
-        mimeType: media.mimeType,
+        mimeType,
         filename: media.filename,
         ...(systemName ? { systemName } : {}),
       }),

@@ -7,6 +7,31 @@ export interface PhotoSlotDef {
   kind: PhotoSlotKind;
 }
 
+// Canonical photo tags — shown as chips in the picker + kebab menu.
+// Free-form tags are still allowed; these are just the common ones.
+export const PHOTO_TAGS: Array<{ id: string; label: string; emoji?: string }> = [
+  { id: 'hero',      label: 'Hero',      emoji: '⭐' },
+  { id: 'start',     label: 'Start',     emoji: '🌱' },
+  { id: 'turn',      label: 'Turn',      emoji: '🔄' },
+  { id: 'probe',     label: 'Probe',     emoji: '🌡️' },
+  { id: 'readiness', label: 'Readiness', emoji: '🧫' },
+  { id: 'quality',   label: 'Quality',   emoji: '🔬' },
+  { id: 'soil',      label: 'Soil',      emoji: '🪴' },
+  { id: 'harvest',   label: 'Harvest',   emoji: '🌾' },
+  { id: 'mulch',     label: 'Mulch',     emoji: '🍂' },
+  { id: 'issue',     label: 'Issue',     emoji: '⚠️' },
+  { id: 'general',   label: 'General',   emoji: '📸' },
+];
+
+export function parseTags(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+}
+
+export function serializeTags(tags: string[]): string {
+  return [...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))].join(',');
+}
+
 export const PHOTO_SLOTS: PhotoSlotDef[] = [
   { id: 'hero',      label: 'Hero photo',       description: 'The signature shot of this build', kind: 'single' },
   { id: 'start',     label: 'Build start',      description: 'How the pile looked at day zero', kind: 'gallery' },
@@ -59,6 +84,8 @@ export interface MediaIndexItem {
   date: string;
   addedAt: string;
   transform: string;
+  eventDate?: string;  // YYYY-MM-DD — "when this photo is about"
+  tags?: string;       // comma-separated
 }
 
 export interface DriveFile {

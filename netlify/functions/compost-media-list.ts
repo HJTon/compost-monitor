@@ -48,6 +48,7 @@ export default async (request: Request, _context: Context) => {
 
     const url = new URL(request.url);
     const systemName = url.searchParams.get('systemName');
+    const subfolder = url.searchParams.get('subfolder'); // optional nested folder inside the build folder
     if (!systemName) {
       return new Response(JSON.stringify({ error: 'Missing ?systemName= parameter' }), {
         status: 400,
@@ -56,25 +57,52 @@ export default async (request: Request, _context: Context) => {
     }
 
     const drive = getDriveClient();
-    const folderId = await findSubfolderId(drive, parentFolderId, systemName);
+    const buildFolderId = await findSubfolderId(drive, parentFolderId, systemName);
 
-    if (!folderId) {
-      return new Response(JSON.stringify({ success: true, files: [] }), {
+    if (!buildFolderId) {
+      return new Response(JSON.stringify({ success: true, files: [], subfolders: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
     }
 
-    const res = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false and (mimeType contains 'image/' or mimeType contains 'video/')`,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-      fields: 'files(id,name,mimeType,thumbnailLink,webContentLink,webViewLink,createdTime,imageMediaMetadata(width,height))',
-      orderBy: 'createdTime desc',
-      pageSize: 200,
-    });
+    // Figure out which folder we're actually listing files from:
+    // - If no subfolder param → the build root
+    // - If subfolder param → the named child folder inside the build
+    let targetFolderId = buildFolderId;
+    if (subfolder) {
+      const subId = await findSubfolderId(drive, buildFolderId, subfolder);
+      if (!subId) {
+        return new Response(JSON.stringify({ success: true, files: [], subfolders: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        });
+      }
+      targetFolderId = subId;
+    }
 
-    const files = (res.data.files || []).map(f => ({
+    // Always list subfolders of the build folder so the picker can offer a dropdown,
+    // regardless of which folder we're currently showing files from.
+    const [filesRes, subfoldersRes] = await Promise.all([
+      drive.files.list({
+        q: `'${targetFolderId}' in parents and trashed=false and (mimeType contains 'image/' or mimeType contains 'video/')`,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        fields: 'files(id,name,mimeType,thumbnailLink,webContentLink,webViewLink,createdTime,imageMediaMetadata(width,height,time))',
+        orderBy: 'createdTime desc',
+        pageSize: 200,
+      }),
+      drive.files.list({
+        q: `'${buildFolderId}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        fields: 'files(id,name)',
+        orderBy: 'name',
+        pageSize: 100,
+      }),
+    ]);
+
+    const files = (filesRes.data.files || []).map(f => ({
       id: f.id,
       name: f.name,
       mimeType: f.mimeType,
@@ -82,11 +110,17 @@ export default async (request: Request, _context: Context) => {
       webContentLink: f.webContentLink,
       webViewLink: f.webViewLink,
       createdTime: f.createdTime,
+      takenTime: f.imageMediaMetadata?.time || null, // EXIF capture time if present
       width: f.imageMediaMetadata?.width,
       height: f.imageMediaMetadata?.height,
     }));
 
-    return new Response(JSON.stringify({ success: true, files, folderId }), {
+    const subfolders = (subfoldersRes.data.files || []).map(f => ({
+      id: f.id,
+      name: f.name,
+    }));
+
+    return new Response(JSON.stringify({ success: true, files, folderId: targetFolderId, buildFolderId, subfolders }), {
       status: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, Brush,
+  ResponsiveContainer, ReferenceLine, ReferenceDot, Brush,
 } from 'recharts';
 import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -13,6 +13,9 @@ import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
 import { parseReadinessCSV, extractDateFromFilename, getReadinessSummary } from '@/utils/readinessParser';
 import type { ReadinessCheck } from '@/types';
+import type { MediaIndexItem } from '@/utils/photoSlots';
+import { bigThumb } from '@/utils/photoSlots';
+import { fetchJsonWithRetry } from '@/utils/fetchRetry';
 import { WILDLIFE_OBS, PLANTFUNGI_OBS, intensitySuffix } from '@/utils/observations';
 import { OBSERVATION_ICONS } from '@/assets/observationIcons';
 import type { ReactNode } from 'react';
@@ -276,6 +279,8 @@ export function SystemAnalysePage() {
 
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loadNonce, setLoadNonce] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
@@ -292,24 +297,186 @@ export function SystemAnalysePage() {
   // Readiness checks
   const [readinessChecks, setReadinessChecks] = useState<ReadinessCheck[]>([]);
   const [readinessLoading, setReadinessLoading] = useState(false);
-  const [readinessExpanded, setReadinessExpanded] = useState<string | null>(null);
+  const [readinessCollapsed, setReadinessCollapsed] = useState<Set<string>>(new Set());
   const csvInputRef = useRef<HTMLInputElement>(null);
+
+  // Photo timeline — photos with eventDate → render as camera pins on chart
+  const [photoTimeline, setPhotoTimeline] = useState<MediaIndexItem[]>([]);
+  const [showPhotos, setShowPhotos] = useState(true);
+  const [hoveredPhoto, setHoveredPhoto] = useState<{ date: string; items: MediaIndexItem[]; x: number; y: number } | null>(null);
+
+  // Group photos by nearest data-day for chart lookup. Photos whose eventDate
+  // falls outside the chart's date range or on a non-reading day snap to the
+  // closest displayData date (within a 30-day window) so they always surface.
+  const photosByDate = useMemo(() => {
+    const map: Record<string, MediaIndexItem[]> = {};
+    // chartData[i].date is a DD/MM label (e.g. "23/03"), NOT an ISO
+    // YYYY-MM-DD. We build a parallel iso→label lookup using the chart's
+    // first-reading date as the year anchor so photo eventDates (ISO) can
+    // be matched to the right chart row.
+    const readingRows = chartData.filter(d => d.peak != null);
+    if (readingRows.length === 0) return map;
+
+    // Convert each reading row's DD/MM back to an ISO-ish timestamp using
+    // the build's first reading year as anchor. chartData is in chronological
+    // order, so months rolling over into a new year are handled by tracking
+    // when the month number decreases.
+    const rowsWithIso: { label: string; ms: number }[] = [];
+    let yearCursor: number | null = null;
+    let prevMonth: number | null = null;
+    for (const row of chartData) {
+      const [dd, mm] = row.date.split('/').map(Number);
+      if (yearCursor === null) {
+        // Seed from photos if we can — fall back to current year.
+        const firstPhotoIso = photoTimeline.find(p => p.eventDate)?.eventDate || '';
+        const m = firstPhotoIso.match(/^(\d{4})/);
+        yearCursor = m ? parseInt(m[1]) : new Date().getFullYear();
+      }
+      if (prevMonth !== null && mm < prevMonth) yearCursor += 1;
+      prevMonth = mm;
+      if (row.peak != null) {
+        const ms = Date.UTC(yearCursor, mm - 1, dd);
+        rowsWithIso.push({ label: row.date, ms });
+      }
+    }
+    if (rowsWithIso.length === 0) return map;
+
+    function nearestLabel(isoDate: string): string | null {
+      const t = Date.parse(isoDate);
+      if (isNaN(t)) return null;
+      let best: string | null = null;
+      let bestDiff = Infinity;
+      for (const r of rowsWithIso) {
+        const diff = Math.abs(r.ms - t);
+        if (diff < bestDiff) { bestDiff = diff; best = r.label; }
+      }
+      if (bestDiff > 365 * 86400 * 1000) return null;
+      return best;
+    }
+
+    for (const p of photoTimeline) {
+      const d = (p.eventDate || '').slice(0, 10);
+      if (!d) continue;
+      const snap = nearestLabel(d);
+      if (!snap) continue;
+      if (!map[snap]) map[snap] = [];
+      map[snap].push(p);
+    }
+    return map;
+  }, [photoTimeline, chartData]);
   const { addToast } = useCompost();
+
+  // Load photo timeline for this system. Photos come from two places:
+  //   (1) Media sheet — slot-assigned photos with captions/transforms/tags
+  //   (2) Drive folder — includes daily-entry uploads + loose Drive files
+  //       that have never been slot-assigned. We merge these in so every
+  //       photo taken for this build shows up as a pin on the chart.
+  //   Media sheet keys by display name ("Pivot #3"), not kebab-case.
+  useEffect(() => {
+    if (!system?.name) return;
+    setPhotoTimeline([]); // reset stale state when switching systems
+
+    type DriveFile = {
+      id: string; name: string; mimeType: string;
+      thumbnailLink?: string; webViewLink?: string;
+      createdTime?: string; takenTime?: string | null;
+    };
+
+    Promise.all([
+      fetchJsonWithRetry<{ items?: MediaIndexItem[] }>(
+        `/.netlify/functions/compost-media-index?system=${encodeURIComponent(system.name)}`
+      ).catch(err => { console.warn('[Analyse] media index failed:', err); return { items: [] }; }),
+      fetchJsonWithRetry<{ files?: DriveFile[] }>(
+        `/.netlify/functions/compost-media-list?systemName=${encodeURIComponent(system.name)}`
+      ).catch(err => { console.warn('[Analyse] media list failed:', err); return { files: [] }; }),
+    ]).then(([indexData, listData]) => {
+      // Build fileId → DriveFile lookup so we can pull EXIF `takenTime`
+      // regardless of whether the photo is sheet-indexed or Drive-only.
+      const driveByFileId: Record<string, DriveFile> = {};
+      for (const f of (listData.files || [])) {
+        if (f.id) driveByFileId[f.id] = f;
+      }
+
+      // 1) All sheet-indexed items. Date priority:
+      //    Drive EXIF takenTime → sheet eventDate → sheet date
+      // We deliberately prefer EXIF over the sheet value because in practice
+      // the sheet's `eventDate` was often written at bulk-registration time
+      // (same day as `addedAt`), which piles dozens of photos onto one pin.
+      // EXIF `takenTime` is the real capture date.
+      //
+      // Only override when the sheet's eventDate looks defaulted — i.e. it
+      // matches addedAt's date — to avoid stomping on dates the user has
+      // deliberately edited via the kebab menu.
+      const sheetItems: MediaIndexItem[] = (indexData.items || []).map(it => {
+        const sheetDate = (it.eventDate || it.date || '').match(/^\d{4}-\d{2}-\d{2}/)?.[0] || '';
+        const addedDate = (it.addedAt || '').slice(0, 10);
+        const drive = driveByFileId[it.fileId];
+        const exifDate = drive?.takenTime ? drive.takenTime.slice(0, 10) : '';
+        let eventDate = sheetDate;
+        if (exifDate && (!sheetDate || sheetDate === addedDate)) {
+          eventDate = exifDate;
+        } else if (!exifDate && sheetDate && sheetDate === addedDate) {
+          // Sheet's eventDate is just the registration date and there's no
+          // EXIF to recover the real capture time. Mark as undated so it
+          // doesn't pile onto a misleading pin.
+          eventDate = '';
+        }
+        return { ...it, eventDate };
+      });
+
+      // 2) Drive-only items (fileIds not yet in the sheet). Prefer the real
+      // capture date (EXIF `takenTime`), then filename prefix, then give up
+      // on pinning — we deliberately leave eventDate blank rather than fall
+      // back to `createdTime` because bulk uploads share an upload date and
+      // would pile dozens of unrelated photos onto a single "day one" pin.
+      const sheetFileIds = new Set(sheetItems.map(it => it.fileId));
+      const driveOnly: MediaIndexItem[] = (listData.files || [])
+        .filter(f => !sheetFileIds.has(f.id))
+        .map(f => {
+          const fromExif = f.takenTime ? f.takenTime.slice(0, 10) : '';
+          const fromName = f.name.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+          const eventDate = fromExif || fromName || '';
+          return {
+            system: system.name,
+            slot: '',
+            order: 0,
+            fileId: f.id,
+            thumbnailUrl: f.thumbnailLink || '',
+            webViewLink: f.webViewLink || '',
+            mimeType: f.mimeType,
+            caption: '',
+            date: eventDate,
+            addedAt: f.createdTime || '',
+            transform: '',
+            eventDate,
+            tags: '',
+          };
+        });
+
+      // Only keep items we can actually date — those are the ones that
+      // will pin on the chart. Undated photos stay in their Drive folder
+      // but don't inflate the "📷 Photos (N)" count.
+      const pinnable = [...sheetItems, ...driveOnly].filter(it => !!it.eventDate);
+      setPhotoTimeline(pinnable);
+    });
+  }, [system?.name, loadNonce]);
 
   useEffect(() => {
     if (!systemId) return;
     setReadinessLoading(true);
-    fetch(`/.netlify/functions/compost-readiness-read?system=${encodeURIComponent(systemId)}`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    setReadinessChecks([]);
+    fetchJsonWithRetry<{ checks?: ReadinessCheck[] }>(
+      `/.netlify/functions/compost-readiness-read?system=${encodeURIComponent(systemId)}`
+    )
       .then(data => {
         const checks: ReadinessCheck[] = (data.checks || []).sort(
-          (a: ReadinessCheck, b: ReadinessCheck) => a.date.localeCompare(b.date)
+          (a, b) => a.date.localeCompare(b.date)
         );
         setReadinessChecks(checks);
       })
-      .catch(() => {})
+      .catch(err => console.warn('[Analyse] readiness failed:', err))
       .finally(() => setReadinessLoading(false));
-  }, [systemId]);
+  }, [systemId, loadNonce]);
 
   const handleCSVUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -350,8 +517,17 @@ export function SystemAnalysePage() {
   useEffect(() => {
     if (!system?.sheetTab) return;
     setLoading(true);
-    fetch(`/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    setLoadError(false);
+    // Reset stale state so a flaky fetch doesn't leave us showing the
+    // previous system's chart.
+    setChartData([]);
+    setTotalEntries(0);
+    setCurrentStreak(0);
+    setLongestStreak(0);
+    setSheetDimensions(null);
+    fetchJsonWithRetry<{ entries?: SheetEntry[]; sheetDimensions?: { heightCm: number | null; widthCm: number | null; lengthCm: number | null } }>(
+      `/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`
+    )
       .then(data => {
         // Store sheet-reported dimensions (from metadata row) as fallback for volume calc
         if (data.sheetDimensions) {
@@ -400,9 +576,12 @@ export function SystemAnalysePage() {
           setLongestStreak(longest);
         }
       })
-      .catch(() => {})
+      .catch(err => {
+        console.warn('[Analyse] sheets-history failed:', err);
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
-  }, [system?.sheetTab]);
+  }, [system?.sheetTab, loadNonce]);
 
   // Lock body scroll + ESC-to-close while the chart is expanded
   useEffect(() => {
@@ -420,17 +599,20 @@ export function SystemAnalysePage() {
   useEffect(() => {
     if (!system?.sheetTab) return;
     setCompLoading(true);
-    fetch(`/.netlify/functions/compost-bin-composition?system=${encodeURIComponent(system.sheetTab.trim())}`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    setComposition([]);
+    setBinCount(0);
+    fetchJsonWithRetry<{ composition?: CompositionItem[]; binCount?: number }>(
+      `/.netlify/functions/compost-bin-composition?system=${encodeURIComponent(system.sheetTab.trim())}`
+    )
       .then(data => {
         if (data.composition) {
           setComposition(data.composition);
           setBinCount(data.binCount ?? 0);
         }
       })
-      .catch(() => {})
+      .catch(err => console.warn('[Analyse] composition failed:', err))
       .finally(() => setCompLoading(false));
-  }, [system?.sheetTab]);
+  }, [system?.sheetTab, loadNonce]);
 
   const displayData = useMemo(() => {
     if (!useCelsius) return chartData;
@@ -444,6 +626,19 @@ export function SystemAnalysePage() {
       ambientMaxF: fToC(pt.ambientMaxF),
     }));
   }, [chartData, useCelsius]);
+
+  // Inject a dedicated photo dataKey into the chart series. Recharts only
+  // fires the `dot` render callback for rows where the Line's dataKey is
+  // non-null; using `peak` dropped pins on interpolated days AND (more
+  // subtly) when peak was fToC-converted. A dedicated numeric field whose
+  // value is controlled by photo presence guarantees the callback fires on
+  // exactly the right days.
+  const displayDataWithPhotos = useMemo(() => {
+    return displayData.map(pt => ({
+      ...pt,
+      photoPin: photosByDate[pt.date] ? (pt.peak ?? pt.peakEst ?? 120) : null,
+    }));
+  }, [displayData, photosByDate]);
 
   const killLineValue = useCelsius ? fToC(KILL_TEMP_F)! : KILL_TEMP_F;
   const tempUnit = useCelsius ? '°C' : '°F';
@@ -461,7 +656,23 @@ export function SystemAnalysePage() {
     <div className="min-h-screen bg-green-50/50 pb-8">
       <Header title={system.name} showBack onBack={() => navigate(isPublicView ? '/view' : '/analyse')} />
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 md:p-6 space-y-6">
+
+        {/* Load error banner — Google Sheets sometimes drops a call. One tap
+            re-runs all fetches in place instead of forcing a page refresh. */}
+        {loadError && (
+          <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <div className="text-sm text-amber-900">
+              Some data failed to load. Tap retry to try again.
+            </div>
+            <button
+              onClick={() => setLoadNonce(n => n + 1)}
+              className="text-xs font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-full px-3 py-1"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* Print button */}
         {!isPublicView && (
@@ -479,7 +690,7 @@ export function SystemAnalysePage() {
         <BuildDescription system={system} readOnly={isPublicView} />
 
         {/* Composition + Build-start photos */}
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <h3 className="font-semibold text-gray-900 mb-3">Composition</h3>
           {compLoading ? (
@@ -546,7 +757,7 @@ export function SystemAnalysePage() {
             <div className="text-center py-4 text-gray-400 text-sm">No bin data found</div>
           )}
         </div>
-          <InlinePhotoSlot systemName={system.name} slotId="start" heightClass="h-full min-h-56" />
+          <InlinePhotoSlot systemName={system.name} slotId="start" heightClass="h-64 md:h-80" />
         </div>
 
         {/* Kill cycle summary */}
@@ -618,6 +829,13 @@ export function SystemAnalysePage() {
                 <span className="inline-flex items-center gap-1"><OBSERVATION_ICONS.mushrooms size={14} /> Plants/fungi</span>
               </button>
               <button
+                onClick={() => setShowPhotos(v => !v)}
+                className={`text-xs px-2.5 py-1 rounded-full font-medium active:scale-95 transition-all ${showPhotos ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-gray-100 text-gray-600'}`}
+                title="Toggle photo pins on the timeline"
+              >
+                📷 Photos{photoTimeline.length > 0 ? ` (${photoTimeline.length})` : ''}
+              </button>
+              <button
                 onClick={() => setChartExpanded(v => !v)}
                 className="text-xs px-2.5 py-1 rounded-full font-medium bg-gray-100 text-gray-600 active:scale-95 transition-all inline-flex items-center gap-1"
                 title={chartExpanded ? 'Shrink chart (Esc)' : 'Expand chart to fullscreen'}
@@ -640,9 +858,9 @@ export function SystemAnalysePage() {
               <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : displayData.length > 0 ? (
-            <div className={chartExpanded ? 'flex-1 min-h-0' : ''}>
+            <div className={chartExpanded ? 'flex-1 min-h-0 relative' : 'relative'}>
             <ResponsiveContainer width="100%" height={chartExpanded ? '100%' : 250} minHeight={chartExpanded ? 400 : 250}>
-              <LineChart data={displayData}>
+              <LineChart data={displayDataWithPhotos}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={40} />
                 <YAxis tick={{ fontSize: 11 }} domain={[0, 'auto']} />
@@ -732,6 +950,53 @@ export function SystemAnalysePage() {
                   name=""
                   connectNulls
                 />
+                {/* Photo pins — one ReferenceDot per photo date. Using
+                    ReferenceDot instead of a Line+dot callback because the
+                    callback approach never fired reliably when the Line had
+                    no visible stroke. */}
+                {showPhotos && Object.entries(photosByDate).map(([date, photos]) => {
+                  const pt = displayDataWithPhotos.find(p => p.date === date);
+                  if (!pt) return null;
+                  const yVal = (pt.peak ?? pt.peakEst ?? killLineValue) as number;
+                  const count = photos.length;
+                  return (
+                    <ReferenceDot
+                      key={`photo-${date}`}
+                      x={date}
+                      y={yVal}
+                      r={0}
+                      ifOverflow="extendDomain"
+                      shape={(props: { cx?: number; cy?: number }) => {
+                        const { cx, cy } = props;
+                        if (cx == null || cy == null) return <g />;
+                        const iconY = 46;
+                        return (
+                          <g
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={() => setHoveredPhoto({ date, items: photos, x: cx, y: iconY })}
+                            onMouseLeave={() => setHoveredPhoto(null)}
+                            onClick={() => {
+                              const first = photos[0];
+                              if (first?.webViewLink) window.open(first.webViewLink, '_blank', 'noopener');
+                            }}
+                          >
+                            <line x1={cx} y1={cy} x2={cx} y2={iconY + 8} stroke="#F43F5E" strokeWidth={1} strokeDasharray="2 2" opacity={0.4} />
+                            <circle cx={cx} cy={iconY} r={9} fill="#F43F5E" opacity={0.95} />
+                            <rect x={cx - 4.5} y={iconY - 2.5} width={9} height={6} rx={1} fill="none" stroke="white" strokeWidth={1.2} />
+                            <rect x={cx - 2} y={iconY - 4} width={4} height={2} fill="white" />
+                            <circle cx={cx} cy={iconY + 0.5} r={1.5} fill="white" />
+                            {count > 1 && (
+                              <g>
+                                <circle cx={cx + 7} cy={iconY - 7} r={6} fill="white" stroke="#F43F5E" strokeWidth={1.2} />
+                                <text x={cx + 7} y={iconY - 5} textAnchor="middle" fontSize="8" fontWeight="700" fill="#F43F5E">{count}</text>
+                              </g>
+                            )}
+                          </g>
+                        );
+                      }}
+                    />
+                  );
+                })}
                 {/* Dashed estimate lines — drawn first so solid lines sit on top */}
                 <Line type="monotone" dataKey="avgEst" stroke="#2D8B4E" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Average (est.)" connectNulls isAnimationActive={false} />
                 <Line type="monotone" dataKey="peakEst" stroke="#F59E0B" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Peak (est.)" connectNulls isAnimationActive={false} />
@@ -825,6 +1090,37 @@ export function SystemAnalysePage() {
                 />
               </LineChart>
             </ResponsiveContainer>
+            {hoveredPhoto && hoveredPhoto.items.length > 0 && (
+              <div
+                className="absolute z-10 pointer-events-none bg-white rounded-lg shadow-lg border border-gray-200 p-1.5"
+                style={{
+                  left: Math.max(8, Math.min(hoveredPhoto.x - 70, 9999)),
+                  top: hoveredPhoto.y + 16,
+                  width: 140,
+                }}
+              >
+                <img
+                  src={bigThumb(hoveredPhoto.items[0].thumbnailUrl, 280) || `https://drive.google.com/thumbnail?id=${hoveredPhoto.items[0].fileId}&sz=w400`}
+                  alt=""
+                  className="w-full h-24 object-cover rounded"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    // Fall back to the direct Drive thumbnail endpoint when
+                    // the cached lh3 URL 403s or returns blank.
+                    const img = e.currentTarget;
+                    const fid = hoveredPhoto.items[0].fileId;
+                    const fallback = `https://drive.google.com/thumbnail?id=${fid}&sz=w400`;
+                    if (img.src !== fallback) img.src = fallback;
+                  }}
+                />
+                <div className="text-[10px] text-gray-500 mt-1 truncate">
+                  {hoveredPhoto.date}{hoveredPhoto.items.length > 1 ? ` · ${hoveredPhoto.items.length} photos` : ''}
+                </div>
+                {hoveredPhoto.items[0].caption && (
+                  <div className="text-[10px] text-gray-700 truncate">{hoveredPhoto.items[0].caption}</div>
+                )}
+              </div>
+            )}
             </div>
           ) : (
             <div className="h-[250px] flex items-center justify-center text-gray-400 text-sm">
@@ -986,7 +1282,7 @@ export function SystemAnalysePage() {
         })()}
 
         {/* Readiness Check + Readiness photos + Quality photos */}
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -1028,7 +1324,7 @@ export function SystemAnalysePage() {
                 const summary = getReadinessSummary(check.results);
                 const beneficial = summary.filter(s => s.category === 'beneficial' || s.category === 'ratio');
                 const detrimental = summary.filter(s => s.category === 'detrimental');
-                const isExpanded = readinessExpanded === check.id;
+                const isExpanded = !readinessCollapsed.has(check.id);
                 const dateLabel = new Date(check.date + 'T00:00:00').toLocaleDateString('en-NZ', {
                   day: 'numeric', month: 'short', year: 'numeric',
                 });
@@ -1036,7 +1332,11 @@ export function SystemAnalysePage() {
                 return (
                   <div key={check.id} className="border border-purple-100 rounded-lg overflow-hidden">
                     <button
-                      onClick={() => setReadinessExpanded(isExpanded ? null : check.id)}
+                      onClick={() => setReadinessCollapsed(prev => {
+                        const next = new Set(prev);
+                        if (next.has(check.id)) next.delete(check.id); else next.add(check.id);
+                        return next;
+                      })}
                       className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-purple-50/30 transition-colors"
                     >
                       <div className="flex-1 min-w-0">
@@ -1095,25 +1395,25 @@ export function SystemAnalysePage() {
             </div>
           )}
         </div>
-          <div className="space-y-4">
-            <InlinePhotoSlot systemName={system.name} slotId="readiness" heightClass="h-56 md:h-64" />
-            <InlinePhotoSlot systemName={system.name} slotId="quality" heightClass="h-56 md:h-64" />
+          <div className="space-y-6">
+            <InlinePhotoSlot systemName={system.name} slotId="readiness" heightClass="h-64 md:h-80" />
+            <InlinePhotoSlot systemName={system.name} slotId="quality" heightClass="h-64 md:h-80" />
           </div>
         </div>
 
         {/* Soil + Harvest — data not tracked yet, placeholder cards on left */}
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-col justify-center">
             <h3 className="font-semibold text-gray-900">Soil performance</h3>
           </div>
-          <InlinePhotoSlot systemName={system.name} slotId="soil" heightClass="h-56 md:h-64" />
+          <InlinePhotoSlot systemName={system.name} slotId="soil" heightClass="h-64 md:h-80" />
         </div>
 
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-col justify-center">
             <h3 className="font-semibold text-gray-900">Harvest / outcome</h3>
           </div>
-          <InlinePhotoSlot systemName={system.name} slotId="harvest" heightClass="h-56 md:h-64" />
+          <InlinePhotoSlot systemName={system.name} slotId="harvest" heightClass="h-64 md:h-80" />
         </div>
 
       </div>

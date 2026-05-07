@@ -21,11 +21,21 @@ interface FrameEditorProps {
 export function FrameEditor({ imageUrl, thumbnailUrl, fileId, initial, onCancel, onSave }: FrameEditorProps) {
   const [t, setT] = useState<PhotoTransform>(initial);
   const [saving, setSaving] = useState(false);
+  const [srcStep, setSrcStep] = useState(0);
   const frameRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
-  const src = imageUrl || bigThumb(thumbnailUrl, 1600)
-    || (fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600` : '');
+  // Ordered URL chain. The lh3.googleusercontent.com URLs sometimes 403
+  // (especially at large sizes), which would leave the editor showing a
+  // black frame. onError below walks down this list.
+  const srcChain = [
+    imageUrl,
+    bigThumb(thumbnailUrl, 1600),
+    bigThumb(thumbnailUrl, 1000),
+    fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600` : '',
+    fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w800` : '',
+  ].filter(Boolean);
+  const src = srcChain[Math.min(srcStep, srcChain.length - 1)] || '';
 
   function updateFocal(clientX: number, clientY: number) {
     const el = frameRef.current;
@@ -90,6 +100,7 @@ export function FrameEditor({ imageUrl, thumbnailUrl, fileId, initial, onCancel,
           >
             {src && (
               <img
+                key={srcStep}
                 src={src}
                 alt="Preview"
                 className="w-full h-full pointer-events-none"
@@ -101,6 +112,9 @@ export function FrameEditor({ imageUrl, thumbnailUrl, fileId, initial, onCancel,
                 }}
                 referrerPolicy="no-referrer"
                 draggable={false}
+                onError={() => {
+                  setSrcStep(prev => (prev + 1 < srcChain.length ? prev + 1 : prev));
+                }}
               />
             )}
             {/* Cross-hair showing focal point */}

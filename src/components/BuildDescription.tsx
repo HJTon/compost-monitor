@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import type { CompostSystem } from '@/types';
+import { fetchJsonWithRetry } from '@/utils/fetchRetry';
 
 interface BuildDescriptionProps {
   system: CompostSystem;
@@ -28,10 +29,11 @@ export function BuildDescription({ system, readOnly }: BuildDescriptionProps) {
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch(`/.netlify/functions/compost-build-info?system=${encodeURIComponent(system.name)}`);
-        const data = await res.json();
+        const data = await fetchJsonWithRetry<{ success?: boolean; info?: BuildInfoDoc }>(
+          `/.netlify/functions/compost-build-info?system=${encodeURIComponent(system.name)}`
+        );
         if (cancelled) return;
-        if (data.success) {
+        if (data.success && data.info) {
           setInfo(data.info);
           setNotesDraft(data.info.notes || '');
           setSummaryDraft(data.info.summary || '');

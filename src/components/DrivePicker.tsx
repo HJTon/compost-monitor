@@ -1,36 +1,57 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, Upload, Image as ImageIcon, Loader2, Check } from 'lucide-react';
+import { X, Upload, Image as ImageIcon, Loader2, Check, FolderPlus } from 'lucide-react';
 import type { DriveFile } from '@/utils/photoSlots';
-import { bigThumb } from '@/utils/photoSlots';
+import { bigThumb, PHOTO_TAGS } from '@/utils/photoSlots';
+import { compressImage } from '@/utils/imageCompress';
+
+interface Subfolder { id: string; name: string }
 
 interface DrivePickerProps {
   systemName: string;
   slotLabel: string;
   allowMultiple?: boolean;
+  defaultTag?: string; // seed tag based on the slot
   onClose: () => void;
-  onPick: (files: DriveFile[]) => void | Promise<void>;
+  onPick: (files: DriveFile[], meta?: { tags?: string[] }) => void | Promise<void>;
 }
 
 type Tab = 'pick' | 'upload';
 
-export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClose, onPick }: DrivePickerProps) {
+export function DrivePicker({ systemName, slotLabel, allowMultiple = true, defaultTag, onClose, onPick }: DrivePickerProps) {
   const [tab, setTab] = useState<Tab>('pick');
   const [files, setFiles] = useState<DriveFile[]>([]);
+  const [subfolders, setSubfolders] = useState<Subfolder[]>([]);
+  const [currentSubfolder, setCurrentSubfolder] = useState<string>(''); // '' = build root
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tags that will be applied to the picked/uploaded files. Seeded by the
+  // slot default so common case is zero extra taps.
+  const [pickTags, setPickTags] = useState<string[]>(defaultTag ? [defaultTag] : []);
   const uploadRef = useRef<HTMLInputElement>(null);
 
-  async function loadFiles() {
+  function toggleTag(id: string) {
+    setPickTags(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
+  }
+
+  async function loadFiles(subfolder: string = currentSubfolder) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/.netlify/functions/compost-media-list?systemName=${encodeURIComponent(systemName)}`);
+      const qs = new URLSearchParams({ systemName });
+      if (subfolder) qs.set('subfolder', subfolder);
+      const res = await fetch(`/.netlify/functions/compost-media-list?${qs.toString()}`);
       const data = await res.json();
-      if (data.success) setFiles(data.files || []);
-      else setError(data.error || 'Failed to load');
+      if (data.success) {
+        setFiles(data.files || []);
+        setSubfolders(data.subfolders || []);
+      } else {
+        setError(data.error || 'Failed to load');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -38,7 +59,28 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
     }
   }
 
-  useEffect(() => { loadFiles(); }, [systemName]);
+  useEffect(() => { loadFiles(''); setCurrentSubfolder(''); setSelected(new Set()); }, [systemName]);
+
+  function handleSubfolderChange(value: string) {
+    setCurrentSubfolder(value);
+    setSelected(new Set());
+    loadFiles(value);
+  }
+
+  async function handleCreateFolder() {
+    const name = newFolderName.trim();
+    if (!name) return;
+    // Creating a folder is implicit: just switch into it and the next upload
+    // will create it via compost-media-upload's getOrCreateSubfolder.
+    // But we also want it to appear in the dropdown even before upload, so
+    // trigger a zero-file upload? Simpler: add it optimistically to the list
+    // and switch to it — it'll materialise on first upload.
+    setSubfolders(prev => prev.some(s => s.name === name) ? prev : [...prev, { id: `pending-${name}`, name }]);
+    setNewFolderName('');
+    setShowNewFolder(false);
+    handleSubfolderChange(name);
+    setTab('upload');
+  }
 
   function toggle(id: string) {
     setSelected(prev => {
@@ -55,7 +97,7 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
     if (picked.length === 0) return;
     setSaving(true);
     try {
-      await onPick(picked);
+      await onPick(picked, { tags: pickTags });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save');
@@ -71,15 +113,19 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
     try {
       const uploaded: DriveFile[] = [];
       for (const file of inputFiles) {
-        const base64 = await fileToBase64(file);
+        const compressed = await compressImage(file);
+        if (compressed.compressed) {
+          console.log(`Compressed ${file.name}: ${(compressed.originalBytes / 1024 / 1024).toFixed(1)} MB → ${(compressed.finalBytes / 1024 / 1024).toFixed(1)} MB`);
+        }
         const res = await fetch('/.netlify/functions/compost-media-upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            mediaData: base64,
-            mimeType: file.type || 'image/jpeg',
+            mediaData: compressed.base64,
+            mimeType: compressed.mimeType,
             filename: file.name,
             systemName,
+            subfolder: currentSubfolder || undefined,
           }),
         });
         const data = await res.json();
@@ -137,6 +183,44 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
         <div className="flex-1 overflow-y-auto p-4">
           {error && (
             <div className="mb-3 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>
+          )}
+
+          {(tab === 'pick' || tab === 'upload') && (
+            <div className="mb-4 flex items-center gap-2 flex-wrap">
+              <label className="text-xs text-gray-500">Folder:</label>
+              <select
+                value={currentSubfolder}
+                onChange={e => handleSubfolderChange(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-2 py-1 bg-white"
+              >
+                <option value="">{systemName} (root)</option>
+                {subfolders.map(sf => (
+                  <option key={sf.id} value={sf.name}>{sf.name}</option>
+                ))}
+              </select>
+              {showNewFolder ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={newFolderName}
+                    onChange={e => setNewFolderName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); } }}
+                    placeholder="Folder name"
+                    className="text-sm border border-gray-300 rounded-lg px-2 py-1"
+                  />
+                  <button onClick={handleCreateFolder} className="text-xs px-2 py-1 rounded-lg bg-green-primary text-white">Create</button>
+                  <button onClick={() => { setShowNewFolder(false); setNewFolderName(''); }} className="text-xs px-2 py-1 rounded-lg text-gray-500 hover:bg-gray-100">Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNewFolder(true)}
+                  className="text-xs flex items-center gap-1 px-2 py-1 rounded-lg text-gray-600 hover:bg-gray-100"
+                  title="New subfolder"
+                >
+                  <FolderPlus size={14} /> New
+                </button>
+              )}
+            </div>
           )}
 
           {tab === 'pick' && (
@@ -229,7 +313,25 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
         </div>
 
         {tab === 'pick' && (
-          <div className="p-4 border-t flex items-center justify-between">
+          <div className="p-4 border-t space-y-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Tag these photos</div>
+              <div className="flex flex-wrap gap-1.5">
+                {PHOTO_TAGS.map(t => {
+                  const active = pickTags.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => toggleTag(t.id)}
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${active ? 'bg-green-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      {t.emoji} {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
             <div className="text-sm text-gray-500">
               {selected.size > 0 ? `${selected.size} selected` : 'Select photos to add'}
             </div>
@@ -244,6 +346,7 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
                 Add {selected.size > 0 ? selected.size : ''}
               </button>
             </div>
+            </div>
           </div>
         )}
       </div>
@@ -251,11 +354,3 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, onClo
   );
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}

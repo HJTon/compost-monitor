@@ -2,8 +2,19 @@ import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
 const MEDIA_TAB = 'Media';
-const HEADERS = ['System', 'Slot', 'Order', 'FileId', 'ThumbnailUrl', 'WebViewLink', 'MimeType', 'Caption', 'Date', 'AddedAt', 'Transform'];
-const RANGE = `'${MEDIA_TAB}'!A:K`;
+const HEADERS = ['System', 'Slot', 'Order', 'FileId', 'ThumbnailUrl', 'WebViewLink', 'MimeType', 'Caption', 'Date', 'AddedAt', 'Transform', 'EventDate', 'Tags'];
+const RANGE = `'${MEDIA_TAB}'!A:M`;
+
+// Slot → default tag mapping (used during backfill and for new uploads
+// that don't yet carry explicit tags)
+const SLOT_DEFAULT_TAGS: Record<string, string> = {
+  hero: 'hero',
+  start: 'start',
+  readiness: 'readiness',
+  quality: 'quality',
+  soil: 'soil',
+  harvest: 'harvest',
+};
 
 function getSheetsClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '{}');
@@ -18,7 +29,7 @@ async function ensureMediaTab(sheets: ReturnType<typeof getSheetsClient>, spread
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const existing = meta.data.sheets?.find(s => s.properties?.title === MEDIA_TAB);
   if (existing?.properties?.sheetId != null) {
-    // Make sure the Transform header is present (retrofit older sheets)
+    // Retrofit newer headers onto older sheets
     const headerRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `'${MEDIA_TAB}'!A1:Z1`,
@@ -30,6 +41,22 @@ async function ensureMediaTab(sheets: ReturnType<typeof getSheetsClient>, spread
         range: `'${MEDIA_TAB}'!K1`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [['Transform']] },
+      });
+    }
+    if (!headerRow.includes('EventDate')) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${MEDIA_TAB}'!L1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [['EventDate']] },
+      });
+    }
+    if (!headerRow.includes('Tags')) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${MEDIA_TAB}'!M1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [['Tags']] },
       });
     }
     return existing.properties.sheetId;
@@ -63,6 +90,8 @@ interface MediaRow {
   date: string;
   addedAt: string;
   transform: string;
+  eventDate: string;
+  tags: string;
 }
 
 function parseRows(values: string[][]): MediaRow[] {
@@ -79,6 +108,8 @@ function parseRows(values: string[][]): MediaRow[] {
     date: r[8] || '',
     addedAt: r[9] || '',
     transform: r[10] || '',
+    eventDate: r[11] || '',
+    tags: r[12] || '',
   })).filter(r => r.fileId);
 }
 
@@ -135,6 +166,7 @@ export default async (request: Request, _context: Context) => {
         const existing = all.filter(r => r.system === body.system && r.slot === body.slot);
         const nextOrder = existing.length > 0 ? Math.max(...existing.map(r => r.order)) + 1 : 0;
 
+        const slotDefault = SLOT_DEFAULT_TAGS[body.slot] || '';
         const row = [
           body.system || '',
           body.slot || '',
@@ -147,6 +179,8 @@ export default async (request: Request, _context: Context) => {
           body.date || '',
           new Date().toISOString(),
           '',
+          body.eventDate || body.date || '',
+          body.tags || slotDefault,
         ];
 
         await sheets.spreadsheets.values.append({
@@ -198,9 +232,21 @@ export default async (request: Request, _context: Context) => {
         });
       }
 
-      if (action === 'updateCaption' || action === 'updateTransform') {
-        const col = action === 'updateCaption' ? 'H' : 'K';
-        const value = action === 'updateCaption' ? (body.caption || '') : (body.transform || '');
+      if (action === 'updateCaption' || action === 'updateTransform' || action === 'updateEventDate' || action === 'updateTags') {
+        const colMap: Record<string, string> = {
+          updateCaption: 'H',
+          updateTransform: 'K',
+          updateEventDate: 'L',
+          updateTags: 'M',
+        };
+        const valueMap: Record<string, string> = {
+          updateCaption: body.caption || '',
+          updateTransform: body.transform || '',
+          updateEventDate: body.eventDate || '',
+          updateTags: body.tags || '',
+        };
+        const col = colMap[action];
+        const value = valueMap[action];
         const res = await sheets.spreadsheets.values.get({
           spreadsheetId,
           range: RANGE,

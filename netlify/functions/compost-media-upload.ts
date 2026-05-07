@@ -16,6 +16,7 @@ interface UploadRequest {
   mimeType: string;
   filename: string;
   systemName?: string; // if provided, upload into a subfolder with this name
+  subfolder?: string;  // optional nested subfolder inside the build folder
 }
 
 async function getOrCreateSubfolder(
@@ -100,10 +101,15 @@ export default async (request: Request, _context: Context) => {
 
     const drive = getDriveClient();
 
-    // Upload into a per-system subfolder if a system name was provided
-    const targetFolderId = body.systemName
-      ? await getOrCreateSubfolder(drive, folderId, body.systemName)
-      : folderId;
+    // Upload into a per-system subfolder if a system name was provided,
+    // and optionally a nested subfolder inside that build folder.
+    let targetFolderId = folderId;
+    if (body.systemName) {
+      targetFolderId = await getOrCreateSubfolder(drive, folderId, body.systemName);
+      if (body.subfolder) {
+        targetFolderId = await getOrCreateSubfolder(drive, targetFolderId, body.subfolder);
+      }
+    }
 
     // Build a readable stream from the buffer for the googleapis upload
     const uploadStream = new Readable();

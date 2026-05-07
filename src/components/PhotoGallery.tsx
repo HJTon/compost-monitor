@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, X, Trash2, Plus, ImageOff, MoreHorizontal, Type, Crop, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Trash2, Plus, ImageOff, MoreHorizontal, Type, Crop, Check, Calendar, Tag } from 'lucide-react';
 import type { MediaIndexItem, PhotoTransform } from '@/utils/photoSlots';
+import { PHOTO_TAGS } from '@/utils/photoSlots';
 import { bigThumb, parseTransform, transformToStyle } from '@/utils/photoSlots';
 import { FrameEditor } from './FrameEditor';
 
@@ -12,6 +13,8 @@ interface PhotoGalleryProps {
   onReplace?: () => void;
   onCaptionChange?: (item: MediaIndexItem, caption: string) => void | Promise<void>;
   onTransformChange?: (item: MediaIndexItem, t: PhotoTransform) => void | Promise<void>;
+  onEventDateChange?: (item: MediaIndexItem, eventDate: string) => void | Promise<void>;
+  onTagsChange?: (item: MediaIndexItem, tags: string) => void | Promise<void>;
   singleSlot?: boolean;
   printMode?: boolean;
 }
@@ -20,9 +23,26 @@ function imageSrc(it: MediaIndexItem, size = 1600): string {
   return bigThumb(it.thumbnailUrl, size) || `https://drive.google.com/thumbnail?id=${it.fileId}&sz=w${size}`;
 }
 
+/**
+ * Ordered list of URLs to try for a given image. Google's
+ * `lh3.googleusercontent.com` thumbnails sometimes 403 or return a blank
+ * placeholder — especially at large sizes — so we chain progressively
+ * simpler URLs and let the <img onError> walk down the list.
+ */
+function imageSrcChain(it: MediaIndexItem): string[] {
+  const chain: string[] = [];
+  const thumb1600 = bigThumb(it.thumbnailUrl, 1600);
+  const thumb1000 = bigThumb(it.thumbnailUrl, 1000);
+  if (thumb1600) chain.push(thumb1600);
+  if (thumb1000 && thumb1000 !== thumb1600) chain.push(thumb1000);
+  chain.push(`https://drive.google.com/thumbnail?id=${it.fileId}&sz=w1600`);
+  chain.push(`https://drive.google.com/thumbnail?id=${it.fileId}&sz=w800`);
+  return chain;
+}
+
 export function PhotoGallery({
   items, heightClass = 'h-64 md:h-96', onAdd, onRemove, onReplace,
-  onCaptionChange, onTransformChange, singleSlot, printMode,
+  onCaptionChange, onTransformChange, onEventDateChange, onTagsChange, singleSlot, printMode,
 }: PhotoGalleryProps) {
   const [index, setIndex] = useState(0);
   const [lightbox, setLightbox] = useState<MediaIndexItem | null>(null);
@@ -31,7 +51,13 @@ export function PhotoGallery({
   const [captionDraft, setCaptionDraft] = useState('');
   const [savingCaption, setSavingCaption] = useState(false);
   const [editingFrame, setEditingFrame] = useState(false);
+  const [editingDate, setEditingDate] = useState(false);
+  const [dateDraft, setDateDraft] = useState('');
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagsDraft, setTagsDraft] = useState<string[]>([]);
   const [aspects, setAspects] = useState<Record<string, number>>({});
+  // Per-file index into the fallback URL chain — bumped on <img> onError.
+  const [srcStep, setSrcStep] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (index >= items.length) setIndex(Math.max(0, items.length - 1));
@@ -44,14 +70,14 @@ export function PhotoGallery({
         if (e.key === 'Escape') setLightbox(null);
         return;
       }
-      if (editingCaption || editingFrame || menuOpen) return;
+      if (editingCaption || editingFrame || editingDate || editingTags || menuOpen) return;
       if (items.length <= 1) return;
       if (e.key === 'ArrowLeft') setIndex(i => (i - 1 + items.length) % items.length);
       if (e.key === 'ArrowRight') setIndex(i => (i + 1) % items.length);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items.length, lightbox, menuOpen, editingCaption, editingFrame, printMode]);
+  }, [items.length, lightbox, menuOpen, editingCaption, editingFrame, editingDate, editingTags, printMode]);
 
   // Empty slot — show "Add photo" placeholder
   if (items.length === 0) {
@@ -96,8 +122,10 @@ export function PhotoGallery({
   const current = items[index];
   const currentTransform = parseTransform(current.transform);
   const multiple = items.length > 1;
-  const currentAspect = aspects[current.fileId];
-  const isPortrait = currentAspect && currentAspect < 0.95;
+  // aspect ratio is still tracked via onLoad (used elsewhere e.g. by print
+  // mode). Photos now fit the fixed heightClass frame via object-cover, so
+  // we no longer expand the container for portrait photos.
+  void aspects;
 
   function openCaption() {
     setMenuOpen(false);
@@ -108,6 +136,35 @@ export function PhotoGallery({
   function openFrame() {
     setMenuOpen(false);
     setEditingFrame(true);
+  }
+
+  function openDate() {
+    setMenuOpen(false);
+    setDateDraft((current.eventDate || '').slice(0, 10));
+    setEditingDate(true);
+  }
+
+  function openTags() {
+    setMenuOpen(false);
+    setTagsDraft((current.tags || '').split(',').map(t => t.trim()).filter(Boolean));
+    setEditingTags(true);
+  }
+
+  async function saveDate() {
+    if (onEventDateChange) await onEventDateChange(current, dateDraft);
+    setEditingDate(false);
+  }
+
+  async function saveTags() {
+    if (onTagsChange) {
+      const joined = [...new Set(tagsDraft.map(t => t.trim().toLowerCase()).filter(Boolean))].join(',');
+      await onTagsChange(current, joined);
+    }
+    setEditingTags(false);
+  }
+
+  function toggleTag(id: string) {
+    setTagsDraft(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
   }
 
   async function saveCaption() {
@@ -129,24 +186,40 @@ export function PhotoGallery({
   return (
     <>
       <div
-        className={`relative w-full rounded-xl overflow-hidden bg-gray-100 group ${isPortrait ? 'max-h-[70vh]' : heightClass}`}
-        style={isPortrait ? { aspectRatio: currentAspect } : undefined}
+        className={`relative w-full rounded-xl overflow-hidden bg-gray-100 group ${heightClass}`}
       >
-        <img
-          src={imageSrc(current)}
-          alt={current.caption || ''}
-          className="w-full h-full cursor-zoom-in"
-          style={transformToStyle(currentTransform)}
-          referrerPolicy="no-referrer"
-          onClick={() => setLightbox(current)}
-          onLoad={(e) => {
-            const el = e.currentTarget;
-            if (el.naturalWidth && el.naturalHeight) {
-              const ratio = el.naturalWidth / el.naturalHeight;
-              setAspects(prev => prev[current.fileId] === ratio ? prev : { ...prev, [current.fileId]: ratio });
-            }
-          }}
-        />
+        {(() => {
+          const chain = imageSrcChain(current);
+          const step = srcStep[current.fileId] || 0;
+          const src = chain[Math.min(step, chain.length - 1)];
+          return (
+            <img
+              key={`${current.fileId}-${step}`}
+              src={src}
+              alt={current.caption || ''}
+              className="w-full h-full cursor-zoom-in"
+              style={transformToStyle(currentTransform)}
+              referrerPolicy="no-referrer"
+              onClick={() => setLightbox(current)}
+              onLoad={(e) => {
+                const el = e.currentTarget;
+                if (el.naturalWidth && el.naturalHeight) {
+                  const ratio = el.naturalWidth / el.naturalHeight;
+                  setAspects(prev => prev[current.fileId] === ratio ? prev : { ...prev, [current.fileId]: ratio });
+                }
+              }}
+              onError={() => {
+                // Walk down the URL chain on failure. Only bump if there's a
+                // next URL to try, otherwise we'd loop forever.
+                setSrcStep(prev => {
+                  const cur = prev[current.fileId] || 0;
+                  if (cur + 1 >= chain.length) return prev;
+                  return { ...prev, [current.fileId]: cur + 1 };
+                });
+              }}
+            />
+          );
+        })()}
 
         {/* Top-right action cluster */}
         <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -192,6 +265,22 @@ export function PhotoGallery({
                   >
                     <Crop size={14} /> Adjust frame
                   </button>
+                  {onEventDateChange && (
+                    <button
+                      onClick={openDate}
+                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50"
+                    >
+                      <Calendar size={14} /> Adjust date
+                    </button>
+                  )}
+                  {onTagsChange && (
+                    <button
+                      onClick={openTags}
+                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50"
+                    >
+                      <Tag size={14} /> Edit tags
+                    </button>
+                  )}
                   {onRemove && (
                     <button
                       onClick={() => { setMenuOpen(false); onRemove(current); }}
@@ -254,6 +343,50 @@ export function PhotoGallery({
           >
             <Type size={12} /> Add caption
           </button>
+        )}
+
+        {/* Inline date editor */}
+        {editingDate && (
+          <div className="absolute bottom-0 left-0 right-0 bg-white border-t shadow-lg p-3 flex gap-2 items-center">
+            <Calendar size={16} className="text-gray-400" />
+            <input
+              type="date"
+              autoFocus
+              value={dateDraft}
+              onChange={e => setDateDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') saveDate();
+                if (e.key === 'Escape') setEditingDate(false);
+              }}
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-green-primary"
+            />
+            <button onClick={saveDate} className="w-9 h-9 rounded-lg bg-green-primary text-white flex items-center justify-center"><Check size={16} /></button>
+            <button onClick={() => setEditingDate(false)} className="w-9 h-9 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center"><X size={16} /></button>
+          </div>
+        )}
+
+        {/* Inline tags editor */}
+        {editingTags && (
+          <div className="absolute bottom-0 left-0 right-0 bg-white border-t shadow-lg p-3 space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {PHOTO_TAGS.map(t => {
+                const active = tagsDraft.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => toggleTag(t.id)}
+                    className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${active ? 'bg-green-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    {t.emoji} {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingTags(false)} className="text-sm px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-100">Cancel</button>
+              <button onClick={saveTags} className="text-sm px-3 py-1.5 rounded-lg bg-green-primary text-white">Save</button>
+            </div>
+          </div>
         )}
 
         {/* Inline caption editor */}
