@@ -216,6 +216,7 @@ export function ComparePage() {
         point[`${prefix}_avg`] = entry?.avg ?? null;
         point[`${prefix}_peak`] = entry?.peak ?? null;
         point[`${prefix}_height`] = entry?.height ?? null;
+        point[`${prefix}_turn`] = !!entry?.turn;
         if (entry?.turn) {
           turns.push({ day: d, dayLabel, colour: series.colour, name: series.system.name });
         }
@@ -528,17 +529,43 @@ export function ComparePage() {
                   />
                 )}
 
-                {/* Turn markers — vertical lines at day of turn in each build's colour */}
-                {showTurns && turnMarkers.map((t, i) => (
-                  <ReferenceLine
-                    key={`turn-${i}`}
-                    x={t.dayLabel}
-                    stroke={t.colour}
-                    strokeWidth={2.5}
-                    strokeDasharray="6 3"
-                    label={{ value: 'T', fill: t.colour, fontSize: 11, position: 'top', fontWeight: 700 }}
-                  />
-                ))}
+                {/* Turn markers — small circular-arrow icon in each build's colour
+                    rendered as a customized dot on an invisible line, sitting on
+                    that build's avg series so it follows the line */}
+                {showTurns && buildData.map(bd => {
+                  const id = bd.system.id;
+                  return (
+                    <Line
+                      key={`${id}_turn`}
+                      type="monotone"
+                      dataKey={`${id}_avg`}
+                      stroke="none"
+                      strokeWidth={0}
+                      isAnimationActive={false}
+                      legendType="none"
+                      name={`${id}_turn`}
+                      connectNulls
+                      dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                        const { cx, cy, index } = props;
+                        if (cx == null || cy == null || index == null) return <g />;
+                        if (!chartData[index]?.[`${id}_turn`]) return <g />;
+                        return (
+                          <g key={`turn-${id}-${index}`}>
+                            <circle cx={cx} cy={cy} r={9} fill={bd.colour} opacity={0.95} />
+                            <path
+                              d={`M${cx - 4},${cy - 1} A4,4 0 1,1 ${cx + 3},${cy + 3}`}
+                              fill="none" stroke="white" strokeWidth={1.5} strokeLinecap="round"
+                            />
+                            <path
+                              d={`M${cx + 1},${cy + 1} L${cx + 3},${cy + 3} L${cx + 5},${cy + 1}`}
+                              fill="none" stroke="white" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
+                            />
+                          </g>
+                        );
+                      }}
+                    />
+                  );
+                })}
 
                 {/* Sample markers — vertical blue dashed lines */}
                 {showSamples && sampleMarkers.map((s, i) => (
