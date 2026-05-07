@@ -194,7 +194,7 @@ export function ComparePage() {
   }
 
   // Build merged chart data (all builds aligned to Day 1)
-  const { chartData, maxDay, turnMarkers, sampleMarkers } = useMemo(() => {
+  const { chartData, maxDay, sampleMarkers } = useMemo(() => {
     if (buildData.length === 0) return { chartData: [], maxDay: 0, turnMarkers: [] as { day: number; dayLabel: string; colour: string; name: string }[], sampleMarkers: [] as { day: number; dayLabel: string; colour: string; name: string }[] };
 
     const allSeries = buildData.map(bd => ({
