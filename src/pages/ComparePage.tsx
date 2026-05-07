@@ -59,6 +59,16 @@ function parseEntryDate(s: string): Date | null {
   return null;
 }
 
+/** Normalise any DD/MM/YYYY or YYYY-MM-DD string to YYYY-MM-DD. */
+function ddmmyyyyToIso(s: string): string {
+  if (!s) return '';
+  const dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dm) return `${dm[3]}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[0];
+  return '';
+}
+
 /** Convert raw entries to day-indexed series (Day 1, Day 2, ...) */
 function toDaySeries(entries: SheetEntry[]): { day: number; avg: number | null; peak: number | null; height: number | null; turn: boolean; sample: string }[] {
   // Parse dates and sort
@@ -172,14 +182,42 @@ export function ComparePage() {
     const selectedSystems = systemList.filter(s => selected.has(s.id));
     const results: BuildSeries[] = [];
 
+    // Fetch the Sampling Log once — used to back-fill the per-entry `sample`
+    // flag for samples that were logged via Let's Sample only (those don't
+    // touch the per-system sheet's sample column).
+    let samplingByDateBySystem: Record<string, Record<string, string>> = {};
+    try {
+      const res = await fetch(`/.netlify/functions/compost-sheets-read?tab=${encodeURIComponent('Sampling Log')}`);
+      if (res.ok) {
+        const data = await res.json();
+        const rows: string[][] = data.data || [];
+        for (let i = 1; i < rows.length; i++) {
+          const r = rows[i];
+          const sys = r?.[2];
+          const sampleId = r?.[1];
+          const iso = ddmmyyyyToIso(r?.[0] || '');
+          if (!sys || !sampleId || !iso) continue;
+          if (!samplingByDateBySystem[sys]) samplingByDateBySystem[sys] = {};
+          samplingByDateBySystem[sys][iso] = sampleId;
+        }
+      }
+    } catch { /* fail open */ }
+
     await Promise.all(selectedSystems.map(async (system, i) => {
       try {
         const res = await fetch(`/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`);
         if (!res.ok) return;
         const data = await res.json();
+        const sysSamples = samplingByDateBySystem[system.name] || {};
+        const entries = (data.entries || []).map((e: SheetEntry) => {
+          if (e.sample && e.sample.length > 0) return e;
+          const iso = ddmmyyyyToIso(e.date);
+          const mapped = iso ? sysSamples[iso] : null;
+          return mapped ? { ...e, sample: mapped } : e;
+        });
         results.push({
           system,
-          entries: data.entries || [],
+          entries,
           colour: LINE_COLOURS[i % LINE_COLOURS.length],
           colourLight: LINE_COLOURS_LIGHT[i % LINE_COLOURS_LIGHT.length],
         });

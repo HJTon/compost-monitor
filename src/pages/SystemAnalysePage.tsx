@@ -116,6 +116,16 @@ function formatDayLabel(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Normalise any DD/MM/YYYY or YYYY-MM-DD string to YYYY-MM-DD. Returns '' if unparseable. */
+function ddmmyyyyToIso(s: string): string {
+  if (!s) return '';
+  const dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dm) return `${dm[3]}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[0];
+  return '';
+}
+
 /** Build a continuous day-by-day series from sparse entries, interpolating gaps. */
 function buildContinuousSeries(entries: SheetEntry[]): ChartPoint[] {
   const dated = entries
@@ -525,16 +535,41 @@ export function SystemAnalysePage() {
     setCurrentStreak(0);
     setLongestStreak(0);
     setSheetDimensions(null);
-    fetchJsonWithRetry<{ entries?: SheetEntry[]; sheetDimensions?: { heightCm: number | null; widthCm: number | null; lengthCm: number | null } }>(
-      `/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`
-    )
-      .then(data => {
+    Promise.all([
+      fetchJsonWithRetry<{ entries?: SheetEntry[]; sheetDimensions?: { heightCm: number | null; widthCm: number | null; lengthCm: number | null } }>(
+        `/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`
+      ),
+      // Sampling Log isn't tied to the daily-entry's `sample` column — samples
+      // logged via Let's Sample only write here. Merge dates back so the
+      // chart marker fires regardless of which path was used.
+      fetchJsonWithRetry<{ data?: string[][] }>(
+        `/.netlify/functions/compost-sheets-read?tab=${encodeURIComponent('Sampling Log')}`
+      ).catch(() => ({ data: [] as string[][] })),
+    ])
+      .then(([data, samplingData]) => {
         // Store sheet-reported dimensions (from metadata row) as fallback for volume calc
         if (data.sheetDimensions) {
           setSheetDimensions(data.sheetDimensions);
         }
         if (data.entries?.length) {
-          const entries: SheetEntry[] = data.entries;
+          // Build ISO-date → sampleId map from the Sampling Log for this system
+          const sampleDateMap = new Map<string, string>();
+          const samplingRows = samplingData?.data || [];
+          for (let i = 1; i < samplingRows.length; i++) {
+            const row = samplingRows[i];
+            if (!row || row[2] !== system.name) continue;
+            const iso = ddmmyyyyToIso(row[0]);
+            if (iso && row[1]) sampleDateMap.set(iso, row[1]);
+          }
+          // Merge: any entry whose date is in the map gets the sample id
+          // (only if not already flagged from the per-system sheet).
+          const rawEntries = data.entries.map(e => {
+            if (e.sample && e.sample.length > 0) return e;
+            const iso = ddmmyyyyToIso(e.date);
+            const mapped = iso ? sampleDateMap.get(iso) : null;
+            return mapped ? { ...e, sample: mapped } : e;
+          });
+          const entries: SheetEntry[] = rawEntries;
           setTotalEntries(entries.length);
 
           // Chart data: continuous day-by-day with interpolated estimates in gaps
