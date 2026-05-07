@@ -232,7 +232,7 @@ export function ComparePage() {
   }
 
   // Build merged chart data (all builds aligned to Day 1)
-  const { chartData, maxDay, sampleMarkers } = useMemo(() => {
+  const { chartData, maxDay } = useMemo(() => {
     if (buildData.length === 0) return { chartData: [], maxDay: 0, turnMarkers: [] as { day: number; dayLabel: string; colour: string; name: string }[], sampleMarkers: [] as { day: number; dayLabel: string; colour: string; name: string }[] };
 
     const allSeries = buildData.map(bd => ({
@@ -255,6 +255,7 @@ export function ComparePage() {
         point[`${prefix}_peak`] = entry?.peak ?? null;
         point[`${prefix}_height`] = entry?.height ?? null;
         point[`${prefix}_turn`] = !!entry?.turn;
+        point[`${prefix}_sample`] = !!entry?.sample;
         if (entry?.turn) {
           turns.push({ day: d, dayLabel, colour: series.colour, name: series.system.name });
         }
@@ -605,17 +606,34 @@ export function ComparePage() {
                   );
                 })}
 
-                {/* Sample markers — vertical blue dashed lines */}
-                {showSamples && sampleMarkers.map((s, i) => (
-                  <ReferenceLine
-                    key={`sample-${i}`}
-                    x={s.dayLabel}
-                    stroke="#3B82F6"
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                    label={{ value: '🧪', fontSize: 12, position: 'top' }}
-                  />
-                ))}
+                {/* Sample markers — flask icon on each build's avg series at sample days */}
+                {showSamples && buildData.map(bd => {
+                  const id = bd.system.id;
+                  return (
+                    <Line
+                      key={`${id}_sample`}
+                      type="monotone"
+                      dataKey={`${id}_avg`}
+                      stroke="none"
+                      strokeWidth={0}
+                      isAnimationActive={false}
+                      legendType="none"
+                      name={`${id}_sample`}
+                      connectNulls
+                      dot={(props: { cx?: number; cy?: number; index?: number }) => {
+                        const { cx, cy, index } = props;
+                        if (cx == null || cy == null || index == null) return <g />;
+                        if (!chartData[index]?.[`${id}_sample`]) return <g />;
+                        return (
+                          <g key={`sample-${id}-${index}`}>
+                            <circle cx={cx} cy={cy} r={9} fill="#3B82F6" opacity={0.95} />
+                            <text x={cx} y={cy + 3} textAnchor="middle" fontSize="10">🧪</text>
+                          </g>
+                        );
+                      }}
+                    />
+                  );
+                })}
 
                 {/* Data lines */}
                 {buildData.map(bd => {
