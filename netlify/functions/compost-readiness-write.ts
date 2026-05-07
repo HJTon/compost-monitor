@@ -26,8 +26,11 @@ const HEADERS = [
 ];
 
 export default async (req: Request, _context: Context) => {
+  if (req.method === 'DELETE') {
+    return handleDelete(req);
+  }
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 });
+    return new Response(JSON.stringify({ error: 'POST or DELETE only' }), { status: 405 });
   }
 
   try {
@@ -114,3 +117,49 @@ export default async (req: Request, _context: Context) => {
     return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 };
+
+async function handleDelete(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+    if (!id) return new Response(JSON.stringify({ error: 'missing id' }), { status: 400 });
+
+    const sheets = getGoogleSheetsClient();
+    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID!;
+
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const tab = meta.data.sheets?.find(s => s.properties?.title === TAB_NAME);
+    if (!tab?.properties || tab.properties.sheetId == null) {
+      return new Response(JSON.stringify({ error: 'tab not found' }), { status: 404 });
+    }
+
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${TAB_NAME}'!A:A` });
+    const rows = res.data.values || [];
+    const rowIdx = rows.findIndex(r => r[0] === id);
+    if (rowIdx < 0) return new Response(JSON.stringify({ error: 'id not found' }), { status: 404 });
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: tab.properties.sheetId,
+              dimension: 'ROWS',
+              startIndex: rowIdx,
+              endIndex: rowIdx + 1,
+            },
+          },
+        }],
+      },
+    });
+
+    return new Response(JSON.stringify({ success: true, deletedId: id }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    console.error('Readiness delete error:', err);
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
+}
