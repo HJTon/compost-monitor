@@ -40,6 +40,8 @@ netlify dev
 
 ## Deploying
 
+**This project deploys directly to Netlify production from the local working directory.** No PR review or CI gate sits between local edits and the live site. Once the user has confirmed they're happy with a change (verified in the browser preview, behaviour looks right), deploy straight to Netlify.
+
 **Always deploy via the Netlify CLI from this directory, using the explicit site ID:**
 
 ```bash
@@ -50,7 +52,9 @@ This builds the app and deploys to **https://compostmonitor.netlify.app**.
 
 > **Important:** Always use `--site` flag as above. The CLI link state has caused cross-deployment incidents in the past (compost-monitor deploying to the Sustainable Trails site). The `--site` flag bypasses the link entirely and guarantees the right site every time. Never run `netlify deploy --prod` without it.
 
-After deploying, push to GitHub:
+Because production is the deploy target, **always confirm with the user before running the deploy command** — even when changes look ready. Don't deploy speculatively.
+
+After deploying, push to GitHub so the source-of-truth repo matches what's live:
 ```bash
 git add .
 git commit -m "your message"
@@ -71,8 +75,9 @@ netlify/
     compost-sheets-history.ts   ← Parse & return last N entries for a system
     compost-media-upload.ts     ← Upload photo/video to Netlify Blobs (daily entries) / Drive (build photos)
     compost-media-serve.ts      ← Serve media from Netlify Blobs
-    compost-media-list.ts       ← List photos in a build's Drive subfolder
-    compost-media-index.ts      ← Manage the `Media` sheet tab (slot assignments, captions, transforms)
+    compost-media-list.ts       ← List photos in a build's Drive subfolder (with nested subfolder enumeration)
+    compost-media-index.ts      ← Manage the `Media` sheet tab (slot assignments, captions, transforms, eventDates, tags)
+    compost-media-backfill.ts   ← One-shot: fill missing EventDate (from Drive EXIF) + Tags (from slot) on existing rows
     compost-build-info.ts       ← Manage the `Build Info` sheet tab (notes + summary per build)
     compost-weather.ts          ← Fetch weather from Open-Meteo API
 
@@ -233,10 +238,16 @@ The chart lives under the Build Description. Two toggles in the header:
 
 When Ambient is on, the chart tooltip adds an `Ambient: min / max` line.
 
+**Photo pins** — rose-pink camera pins float above the peak-temp line at each photo's `EventDate`. Hover → floating thumbnail + caption preview; click → opens in Drive; `×N` badge when multiple photos share a date. Photos whose eventDate falls on a non-reading day snap to the nearest reading day within a 30-day window (cap avoids misleading cross-build snaps). Toggle via the `📷 Photos (N)` chip next to Ambient/Wildlife.
+
 ### Future enhancements (not yet built)
 
 - **AI-assisted summary** on the Summary field — pre-fill from readings, kill-cycle achievement, turn events, sample labs. Will use the same pattern as Hononga's `summarise-korero.ts`.
 - **Cross-build analytics** — filter and compare multiple builds by build type, season, or custom attribute. See "Ideas for expanding Analyse" further down.
+- **Photo auto-routing (Phase 2.5)** — slot-to-tag auto population. Today, every photo must be uploaded via a `PhotoSlot`, so `slot == 'readiness'` and `tags contains 'readiness'` always overlap. To make auto-routing valuable, add a **loose upload** path (e.g. a "Build photos" gallery section at the top of Analyse with its own DrivePicker entry point) where photos are tagged but not assigned to a slot. Then give each `PhotoSlot` a two-mode toggle:
+  - **Pinned** (today's behaviour) — slot shows photos where `slot == slotId`, manually curated.
+  - **Auto** — slot shows all photos in the build where `tags.includes(slotId)`, newest first, capped at N.
+  A slot switches to Pinned the moment a user manually pins a photo (explicit override wins). Default for new builds: Auto. Data-model ready — the `Tags` column is already populated; the only new UI surface is the loose upload gallery + per-slot mode toggle.
 
 ### Photo slots
 Fixed slots are defined in `src/utils/photoSlots.ts`:
@@ -247,16 +258,25 @@ Fixed slots are defined in `src/utils/photoSlots.ts`:
 - `soil` — soil performance
 - `harvest` — harvest / outcome
 
-Photos are stored in **Google Drive** per-build subfolders (same folder tree as daily-entry uploads; folder name matches `system.name`). Slot assignments, captions, and pan/zoom transforms are tracked in a **`Media` sheet tab**:
+Photos are stored in **Google Drive** per-build subfolders (same folder tree as daily-entry uploads; folder name matches `system.name`). DrivePicker supports nested subfolders inside each build (e.g. `Pivot #1/Turns/`) via a dropdown — new folders are created lazily on first upload. Slot assignments, captions, pan/zoom transforms, event dates, and tags are tracked in a **`Media` sheet tab**:
 
-| System | Slot | Order | FileId | ThumbnailUrl | WebViewLink | MimeType | Caption | Date | AddedAt | Transform |
-|---|---|---|---|---|---|---|---|---|---|---|
+| System | Slot | Order | FileId | ThumbnailUrl | WebViewLink | MimeType | Caption | Date | AddedAt | Transform | EventDate | Tags |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
-The `Transform` column holds JSON `{fx, fy, zoom}` (0..1 focal-point coords + zoom factor); `FrameEditor` writes it, `PhotoGallery` applies it via CSS `object-position` + `scale()` — the Drive file is never modified.
+- The `Transform` column holds JSON `{fx, fy, zoom}` (0..1 focal-point coords + zoom factor); `FrameEditor` writes it, `PhotoGallery` applies it via CSS `object-position` + `scale()` — the Drive file is never modified.
+- `EventDate` (YYYY-MM-DD) is "when this photo is about" — defaults to Drive's EXIF `time` or `createdTime` at add time, editable from the photo kebab menu. It drives the camera pins on the temperature chart.
+- `Tags` is a comma-separated list of canonical tag ids (`hero, start, turn, probe, readiness, quality, soil, harvest, mulch, issue, general`). On add, the slot id is merged with any tags picked via DrivePicker's chip row. Editable per-photo via the kebab menu.
+- **System** column is the display name (e.g. `"Pivot #3"`), NOT the kebab-case id (`"pivot-3"`). When fetching media for the chart in `SystemAnalysePage`, look up via `system.name`, not `systemId`.
+
+### Backfill
+`netlify/functions/compost-media-backfill.ts` — idempotent one-shot that fills `EventDate` from Drive EXIF/createdTime and `Tags` from the slot, for any row missing them. Safe to re-run; only touches blank fields. Call `GET /.netlify/functions/compost-media-backfill` (optionally `?system=Pivot #3` to scope).
+
+### Image compression
+`src/utils/imageCompress.ts` — both upload paths (DrivePicker file input + offline daily-entry sync) run images through a client-side canvas resize to max-edge 2400 px, JPEG 0.85, before hitting `compost-media-upload`. Stays well under Netlify's 4 MB body cap. Videos and HEIC pass through untouched.
 
 ### Components
 - **`DrivePicker`** — modal with Pick/Upload tabs, shows aspect-ratio-preserving thumbnails with Portrait/Landscape badges
-- **`PhotoGallery`** — slideshow with dots, lightbox, per-photo kebab menu (Edit caption / Adjust frame / Remove). Portrait photos (aspect < 0.95) are detected via `onLoad` and capped at `max-h-[70vh]`.
+- **`PhotoGallery`** — slideshow with dots, lightbox, per-photo kebab menu (Edit caption / Adjust frame / Adjust date / Edit tags / Remove). Portrait photos (aspect < 0.95) are detected via `onLoad` and capped at `max-h-[70vh]`.
 - **`PhotoSlot` / `InlinePhotoSlot`** — slot wrappers; `InlinePhotoSlot` self-fetches and is used throughout `SystemAnalysePage`
 - **`FrameEditor`** — pointer-drag focal point + 1×–4× zoom slider
 
@@ -350,21 +370,23 @@ These are not needed for local development (functions won't work locally without
 
 ---
 
-## Git workflow for teams
+## Git workflow
 
-- Work on a **feature branch**, not directly on `main`
-- Branch naming: `feature/description` or `fix/description`
-- Open a pull request on GitHub for review before merging
-- Only deploy to production from `main`
+This project uses a **direct-to-production** flow rather than feature branches and PRs:
+
+1. Make the change locally on `main`
+2. Verify in the browser preview (`npm run dev`)
+3. Get user confirmation that the behaviour is right
+4. Deploy to Netlify (see "Deploying" above)
+5. Commit and push to GitHub so the repo matches what's live
 
 ```bash
-git checkout -b feature/my-change
-# make changes
 git add .
 git commit -m "Short description of what and why"
-git push origin feature/my-change
-# open PR on GitHub
+git push
 ```
+
+GitHub is treated as the source-of-truth mirror, not a review gate. If you ever want a PR-based flow for a particular change (e.g. another contributor reviewing), branch off `main` and open a PR — but the default is straight commits to `main` after the user has signed off.
 
 ### Adding new team members
 1. Add them as a collaborator at https://github.com/HJTon/compost-monitor (Settings → Collaborators)

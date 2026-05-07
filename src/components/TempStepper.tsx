@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ProbeReading } from '@/types';
-import { getTempColor, getTempBorderColor } from '@/utils/config';
+import { getTempColor, getTempBorderColor, fToC, cToF } from '@/utils/config';
 
 interface TempStepperProps {
   probes: ProbeReading[];
@@ -8,9 +8,11 @@ interface TempStepperProps {
   /** Fired when the user commits a probe (moves away from it). Parent can
    * inspect the value and decide whether to show a confirmation. */
   onProbeCommit?: (probeIndex: number) => void;
+  /** Display/input unit. Internal probe values stay in °F. */
+  unit?: 'F' | 'C';
 }
 
-export function TempStepper({ probes, onChange, onProbeCommit }: TempStepperProps) {
+export function TempStepper({ probes, onChange, onProbeCommit, unit = 'F' }: TempStepperProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userInteracted, setUserInteracted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,11 +31,22 @@ export function TempStepper({ probes, onChange, onProbeCommit }: TempStepperProp
 
   const handleValueChange = (value: string) => {
     setUserInteracted(true);
-    const numValue = value === '' ? null : parseFloat(value);
+    let numValue: number | null;
+    if (value === '') {
+      numValue = null;
+    } else {
+      const parsed = parseFloat(value);
+      numValue = Number.isNaN(parsed) ? null : (unit === 'C' ? cToF(parsed) : parsed);
+    }
     const updated = probes.map((p, i) =>
       i === currentIndex ? { ...p, value: numValue } : p
     );
     onChange(updated);
+  };
+
+  const toDisplay = (f: number | null | undefined): number | '' => {
+    if (f === null || f === undefined) return '';
+    return unit === 'C' ? Math.round(fToC(f) * 10) / 10 : Math.round(f * 10) / 10;
   };
 
   const handleNext = () => {
@@ -103,13 +116,13 @@ export function TempStepper({ probes, onChange, onProbeCommit }: TempStepperProp
           ref={inputRef}
           type="number"
           inputMode="decimal"
-          value={currentValue ?? ''}
+          value={toDisplay(currentValue)}
           onChange={e => handleValueChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="---"
           className="w-full text-center text-5xl font-bold py-6 bg-transparent outline-none placeholder-gray-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <div className="text-center text-sm text-gray-500 pb-2">°F</div>
+        <div className="text-center text-sm text-gray-500 pb-2">°{unit}</div>
       </div>
 
       {/* Nav buttons */}
@@ -133,7 +146,7 @@ export function TempStepper({ probes, onChange, onProbeCommit }: TempStepperProp
       {/* Running summary */}
       <div className="text-center text-sm text-gray-500">
         {enteredCount} of {probes.length} entered
-        {runningAvg !== null && ` · Avg: ${runningAvg}°F`}
+        {runningAvg !== null && ` · Avg: ${unit === 'C' ? Math.round(fToC(runningAvg)) : runningAvg}°${unit}`}
       </div>
     </div>
   );

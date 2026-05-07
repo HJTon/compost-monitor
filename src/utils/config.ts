@@ -39,18 +39,27 @@ export const TEMP_UPPER_LIMIT_F = 200;
 export const TEMP_ABSOLUTE_LOWER_F = 50;
 
 /**
- * Dynamic lower limit for probe readings in °F.
- * On a cold day the limit falls back to 50°F. On a warm day the pile
- * should generally be at or above ambient, so we lift the limit to
- * roughly match ambient max.
- * @param ambientMaxC — ambient max in °C (null if unknown)
+ * Lower limit for probe readings in °F. Fixed floor only — catches obvious
+ * typos / mis-readings (negative numbers, single digits) without flagging
+ * legitimately cool piles (fresh builds, finished/cooled piles, stalled
+ * piles). The previous ambient-based lift produced false positives on warm
+ * days when probes legitimately read at or below ambient.
  */
-export function getTempLowerLimitF(ambientMaxC: number | null | undefined): number {
-  if (ambientMaxC === null || ambientMaxC === undefined || Number.isNaN(ambientMaxC)) {
-    return TEMP_ABSOLUTE_LOWER_F;
-  }
-  const ambientMaxF = ambientMaxC * 9 / 5 + 32;
-  return Math.max(TEMP_ABSOLUTE_LOWER_F, Math.round(ambientMaxF));
+export function getTempLowerLimitF(_ambientMaxC?: number | null): number {
+  return TEMP_ABSOLUTE_LOWER_F;
+}
+
+// Temperature unit conversion helpers
+export function fToC(f: number): number {
+  return (f - 32) * 5 / 9;
+}
+export function cToF(c: number): number {
+  return c * 9 / 5 + 32;
+}
+/** Format a Fahrenheit value for display in the user's chosen unit. */
+export function formatTempF(valueF: number, unit: 'F' | 'C'): string {
+  if (unit === 'C') return `${Math.round(fToC(valueF))}°C`;
+  return `${Math.round(valueF)}°F`;
 }
 
 // Default build types — user can add more via the app
@@ -108,6 +117,7 @@ export const DEFAULT_TRIAL_CROPS = [
 // Default settings
 export const DEFAULT_SETTINGS: AppSettings = {
   entryMode: 'stepper',
+  tempUnit: 'C',
   activeSystems: COMPOST_SYSTEMS.map(s => s.id),
   farmLatitude: -39.18598,
   farmLongitude: 174.078433,

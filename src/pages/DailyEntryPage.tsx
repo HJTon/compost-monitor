@@ -13,7 +13,7 @@ import { queueMediaSync } from '@/services/syncService';
 import { fetchWeather } from '@/services/weatherService';
 import {
   getNZDate, getNZTime, KILL_TEMP_F, getTempColor,
-  getTempLowerLimitF, TEMP_UPPER_LIMIT_F,
+  getTempLowerLimitF, TEMP_UPPER_LIMIT_F, fToC,
 } from '@/utils/config';
 import type { DailyEntry, WeatherCondition, MoistureLevel, OdourLevel, ProbeReading, MediaItem, Observations } from '@/types';
 import { WILDLIFE_OBS, PLANTFUNGI_OBS, MAX_INTENSITY, intensitySuffix } from '@/utils/observations';
@@ -97,7 +97,8 @@ function parseHeightDate(s: string): Date | null {
 export function DailyEntryPage() {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
-  const { settings, saveEntry, getEntryForSystemDate, createBlankEntry, addToast, getSystem } = useCompost();
+  const { settings, updateSettings, saveEntry, getEntryForSystemDate, createBlankEntry, addToast, getSystem } = useCompost();
+  const tempUnit: 'F' | 'C' = settings.tempUnit ?? 'C';
 
   const system = systemId ? getSystem(systemId) : undefined;
   const [entry, setEntry] = useState<DailyEntry | null>(null);
@@ -339,7 +340,7 @@ export function DailyEntryPage() {
             )}
             {todayExisting.averageTemp !== null && (
               <p className="text-sm text-gray-500">
-                Avg {todayExisting.averageTemp}°F · Peak {todayExisting.peakTemp}°F
+                Avg {tempUnit === 'C' ? Math.round(fToC(todayExisting.averageTemp)) : todayExisting.averageTemp}°{tempUnit} · Peak {tempUnit === 'C' ? Math.round(fToC(todayExisting.peakTemp!)) : todayExisting.peakTemp}°{tempUnit}
               </p>
             )}
           </div>
@@ -523,20 +524,38 @@ export function DailyEntryPage() {
         {/* Temperature Entry */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">Probe Temperatures (°F)</h3>
-            <button
-              onClick={() => setIsStepper(!isStepper)}
-              className="p-2 rounded-lg bg-gray-100 text-gray-600 active:scale-95 transition-all"
-              title={isStepper ? 'Switch to grid' : 'Switch to stepper'}
-            >
-              {isStepper ? <Grid3x3 size={18} /> : <List size={18} />}
-            </button>
+            <h3 className="font-semibold text-gray-900">Probe Temperatures (°{tempUnit})</h3>
+            <div className="flex items-center gap-2">
+              <div className="flex bg-gray-100 rounded-lg p-0.5 text-sm font-medium">
+                <button
+                  onClick={() => updateSettings({ tempUnit: 'C' })}
+                  className={`px-2.5 py-1 rounded-md transition-all ${tempUnit === 'C' ? 'bg-white text-green-primary shadow-sm' : 'text-gray-500'}`}
+                  aria-pressed={tempUnit === 'C'}
+                >
+                  °C
+                </button>
+                <button
+                  onClick={() => updateSettings({ tempUnit: 'F' })}
+                  className={`px-2.5 py-1 rounded-md transition-all ${tempUnit === 'F' ? 'bg-white text-green-primary shadow-sm' : 'text-gray-500'}`}
+                  aria-pressed={tempUnit === 'F'}
+                >
+                  °F
+                </button>
+              </div>
+              <button
+                onClick={() => setIsStepper(!isStepper)}
+                className="p-2 rounded-lg bg-gray-100 text-gray-600 active:scale-95 transition-all"
+                title={isStepper ? 'Switch to grid' : 'Switch to stepper'}
+              >
+                {isStepper ? <Grid3x3 size={18} /> : <List size={18} />}
+              </button>
+            </div>
           </div>
 
           {isStepper ? (
-            <TempStepper probes={entry.probes} onChange={handleProbeChange} onProbeCommit={handleProbeCommit} />
+            <TempStepper probes={entry.probes} onChange={handleProbeChange} onProbeCommit={handleProbeCommit} unit={tempUnit} />
           ) : (
-            <TempGrid probes={entry.probes} onChange={handleProbeChange} onProbeCommit={handleProbeCommit} />
+            <TempGrid probes={entry.probes} onChange={handleProbeChange} onProbeCommit={handleProbeCommit} unit={tempUnit} />
           )}
         </div>
 
@@ -548,13 +567,13 @@ export function DailyEntryPage() {
               <div className="text-center">
                 <div className="text-sm text-gray-500">Average</div>
                 <div className={`text-2xl font-bold ${entry.averageTemp !== null ? getTempColor(entry.averageTemp).split(' ')[0] : 'text-gray-400'}`}>
-                  {entry.averageTemp !== null ? `${entry.averageTemp}°` : '--'}
+                  {entry.averageTemp !== null ? `${tempUnit === 'C' ? Math.round(fToC(entry.averageTemp)) : entry.averageTemp}°${tempUnit}` : '--'}
                 </div>
               </div>
               <div className="text-center">
                 <div className="text-sm text-gray-500">Peak</div>
                 <div className={`text-2xl font-bold ${entry.peakTemp !== null ? getTempColor(entry.peakTemp).split(' ')[0] : 'text-gray-400'}`}>
-                  {entry.peakTemp !== null ? `${entry.peakTemp}°` : '--'}
+                  {entry.peakTemp !== null ? `${tempUnit === 'C' ? Math.round(fToC(entry.peakTemp)) : entry.peakTemp}°${tempUnit}` : '--'}
                 </div>
               </div>
               <div className="text-center">
@@ -875,6 +894,7 @@ export function DailyEntryPage() {
           subtitle="That temperature looks unusual — is the value correct?"
           primaryLabel="Let me fix it"
           secondaryLabel="Yes, keep it"
+          unit={tempUnit}
           onGoBack={() => {
             // Clear the probe so the user can re-enter
             if (entry) {
@@ -905,6 +925,7 @@ export function DailyEntryPage() {
         <SaveConfirmModal
           issues={pendingIssues}
           saving={saving}
+          unit={tempUnit}
           onGoBack={() => setPendingIssues(null)}
           onSaveAnyway={performSave}
           onReduceProbes={() => {

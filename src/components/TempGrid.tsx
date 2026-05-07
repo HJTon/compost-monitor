@@ -1,12 +1,14 @@
 import { useRef } from 'react';
 import type { ProbeReading } from '@/types';
-import { getTempColor, getTempBorderColor } from '@/utils/config';
+import { getTempColor, getTempBorderColor, fToC, cToF } from '@/utils/config';
 
 interface TempGridProps {
   probes: ProbeReading[];
   onChange: (probes: ProbeReading[]) => void;
   /** Fired when a probe cell loses focus, for guardrail checks. */
   onProbeCommit?: (probeIndex: number) => void;
+  /** Display/input unit. Internal probe values stay in °F. */
+  unit?: 'F' | 'C';
 }
 
 // 3x3 grid mapping: rows are Core/Mid/Edge, cols are Left/Centre/Right
@@ -20,15 +22,26 @@ const GRID_ORDER = [1, 0, 2, 4, 3, 5, 7, 6, 8];
 const ROW_LABELS = ['Core', 'Mid', 'Edge'];
 const COL_LABELS = ['Left', 'Centre', 'Right'];
 
-export function TempGrid({ probes, onChange, onProbeCommit }: TempGridProps) {
+export function TempGrid({ probes, onChange, onProbeCommit, unit = 'F' }: TempGridProps) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleValueChange = (probeIndex: number, value: string) => {
-    const numValue = value === '' ? null : parseFloat(value);
+    let numValue: number | null;
+    if (value === '') {
+      numValue = null;
+    } else {
+      const parsed = parseFloat(value);
+      numValue = Number.isNaN(parsed) ? null : (unit === 'C' ? cToF(parsed) : parsed);
+    }
     const updated = probes.map((p, i) =>
       i === probeIndex ? { ...p, value: numValue } : p
     );
     onChange(updated);
+  };
+
+  const toDisplay = (f: number | null | undefined): number | '' => {
+    if (f === null || f === undefined) return '';
+    return unit === 'C' ? Math.round(fToC(f) * 10) / 10 : Math.round(f * 10) / 10;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, gridPos: number) => {
@@ -68,7 +81,7 @@ export function TempGrid({ probes, onChange, onProbeCommit }: TempGridProps) {
                   ref={el => { inputRefs.current[gridPos] = el; }}
                   type="number"
                   inputMode="decimal"
-                  value={value ?? ''}
+                  value={toDisplay(value)}
                   onChange={e => handleValueChange(probeIndex, e.target.value)}
                   onKeyDown={e => handleKeyDown(e, gridPos)}
                   onFocus={e => e.target.select()}

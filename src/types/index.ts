@@ -170,6 +170,8 @@ export interface KillCycleData {
 
 export interface AppSettings {
   entryMode: TempEntryMode;
+  /** Display/input unit for probe temperatures on the Let's Measure page. Defaults to 'C'. Internal storage stays in °F. */
+  tempUnit?: 'F' | 'C';
   activeSystems: string[];
   farmLatitude: number;
   farmLongitude: number;

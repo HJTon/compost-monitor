@@ -1,4 +1,5 @@
 import { AlertTriangle, ArrowLeft, Save, Settings2 } from 'lucide-react';
+import { fToC } from '@/utils/config';
 
 export type SaveConfirmIssue =
   | { type: 'skipped'; label: string }
@@ -26,16 +27,19 @@ interface SaveConfirmModalProps {
   primaryLabel?: string;
   /** Label for the secondary button. Default: "Save anyway" */
   secondaryLabel?: string;
+  /** Unit to display temperatures in. Values/limits are stored in °F regardless. */
+  unit?: 'F' | 'C';
 }
 
-function formatIssue(issue: SaveConfirmIssue): string {
+function formatIssue(issue: SaveConfirmIssue, unit: 'F' | 'C'): string {
+  const fmt = (f: number) => unit === 'C' ? `${Math.round(fToC(f))}°C` : `${Math.round(f)}°F`;
   switch (issue.type) {
     case 'skipped':
       return `${issue.label}: not measured`;
     case 'too_low':
-      return `${issue.label}: ${issue.value}°F — below ${issue.limit}°F`;
+      return `${issue.label}: ${fmt(issue.value)} — below ${fmt(issue.limit)}`;
     case 'too_high':
-      return `${issue.label}: ${issue.value}°F — above ${issue.limit}°F`;
+      return `${issue.label}: ${fmt(issue.value)} — above ${fmt(issue.limit)}`;
   }
 }
 
@@ -49,6 +53,7 @@ export function SaveConfirmModal({
   subtitle = 'We spotted something that looks unusual. Please double-check.',
   primaryLabel = 'Go back and edit',
   secondaryLabel = 'Save anyway',
+  unit = 'F',
 }: SaveConfirmModalProps) {
   const hasSkipped = issues.some(i => i.type === 'skipped');
   const showReduceProbes = hasSkipped && !!onReduceProbes;
@@ -81,7 +86,7 @@ export function SaveConfirmModal({
             {issues.map((issue, i) => (
               <li key={i} className="text-sm text-gray-700 flex gap-2">
                 <span className="text-amber-500 flex-shrink-0">•</span>
-                <span>{formatIssue(issue)}</span>
+                <span>{formatIssue(issue, unit)}</span>
               </li>
             ))}
           </ul>
