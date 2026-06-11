@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import type { DailyEntry, AppSettings, CompostSystem, BusinessInfo, BuildPhase, MaturationInfo, GrowInfo } from '@/types';
 import type { ToastMessage as ToastMsg } from '@/components/Toast';
 import {
@@ -45,7 +45,7 @@ interface CompostContextType {
   createBlankEntry: (systemId: string) => DailyEntry;
 
   // Sync
-  syncNow: () => Promise<void>;
+  syncNow: (silent?: boolean) => Promise<void>;
   discardPending: () => Promise<void>;
 
   // Settings
@@ -114,7 +114,9 @@ export function CompostProvider({ children }: { children: ReactNode }) {
 
   const addToast = useCallback((type: ToastMsg['type'], message: string, action?: ToastMsg['action']) => {
     const id = generateId();
-    setToasts(prev => [...prev, { id, type, message, action }]);
+    // Dedupe: don't stack a second copy of a message that's already showing —
+    // repeated sync retries on a flaky connection were filling the screen.
+    setToasts(prev => prev.some(t => t.message === message) ? prev : [...prev, { id, type, message, action }]);
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -180,6 +182,14 @@ export function CompostProvider({ children }: { children: ReactNode }) {
       setPendingCount(count);
       setCustomSystems(cleanCustomSystems);
       setBusinesses(storedBusinesses);
+
+      // Kick a quiet sync on app open if anything is still waiting — this
+      // also recovers items that were stuck mid-sync when the app was last
+      // closed (they sit in 'syncing' status and would otherwise wait for
+      // an online/offline transition that may never fire).
+      if (count > 0 && navigator.onLine) {
+        setTimeout(() => syncNowRef.current(true), 2000);
+      }
 
       // Load phase data from the Build Phases sheet tab (when online)
       if (navigator.onLine) {
@@ -466,30 +476,57 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const syncNow = useCallback(async () => {
-    if (isSyncing) return;
+  const syncNow = useCallback(async (silent?: boolean) => {
+    // Guard against event objects being passed via onClick={syncNow}
+    const quiet = silent === true;
+    if (!navigator.onLine) return;
     setIsSyncing(true);
     try {
-      const result = await processSyncQueue();
+      // processSyncQueue has its own module-level lock, so overlapping calls
+      // can't double-process the queue. Manual syncs (non-quiet) bypass
+      // per-item backoff timers.
+      const result = await processSyncQueue(!quiet);
       const count = await getPendingCount();
       setPendingCount(count);
 
       if (result.synced > 0) {
-        addToast('success', `Synced ${result.synced} entr${result.synced === 1 ? 'y' : 'ies'}`);
         await refreshEntries();
+        if (!quiet || count === 0) {
+          addToast('success', count === 0
+            ? `Synced ${result.synced} item${result.synced === 1 ? '' : 's'} — all up to date`
+            : `Synced ${result.synced} item${result.synced === 1 ? '' : 's'}`);
+        }
       }
-      if (result.failed > 0) {
-        addToast('error', `${result.failed} entr${result.failed === 1 ? 'y' : 'ies'} failed to sync`, {
-          label: 'Retry',
-          onClick: () => { syncNow(); },
-        });
+      // Permanent failures (e.g. a video over the size limit) are reported
+      // once with the actual reason, then never retried.
+      for (const msg of result.permanentErrors) {
+        addToast('error', msg);
+      }
+      if (result.failed > 0 && !quiet) {
+        addToast('info', 'Connection is patchy — everything is saved on this device and will sync automatically');
       }
     } catch (err) {
       console.error('Sync failed:', err);
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing, addToast, refreshEntries]);
+  }, [addToast, refreshEntries]);
+
+  // Background retry: while items are pending, retry roughly every 45s
+  // without toasting (the status bar already shows the pending count).
+  // Catches items whose backoff has elapsed and connections that recover
+  // without firing an 'online' event (common with weak rural signal).
+  const syncNowRef = useRef(syncNow);
+  useEffect(() => { syncNowRef.current = syncNow; }, [syncNow]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!navigator.onLine) return;
+      getPendingCount().then(count => {
+        if (count > 0) syncNowRef.current(true);
+      });
+    }, 45_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const discardPending = useCallback(async () => {
     await clearSyncQueue();

@@ -49,16 +49,42 @@ export default async (req: Request, _context: Context) => {
       r.method, r.handling, r.notes,
     ]);
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `'${TAB_NAME}'!A:L`,
-      valueInputOption: 'RAW',
-      requestBody: { values },
-    });
+    // Dedupe against rows already in the sheet so the offline sync queue can
+    // safely retry this request (e.g. when the response was lost on a flaky
+    // connection after the append actually succeeded). Identity = date +
+    // sample id + system + probe + sub-sample + temperature (turn/height
+    // excluded — they can vary in formatting between client and sheet).
+    // Temperature is included so a deliberately re-logged correction with a
+    // different value still gets written.
+    const keyOf = (cells: unknown[]) =>
+      JSON.stringify(cells.slice(0, 8).map((c, i) => (i === 3 || i === 4) ? '' : String(c ?? '').trim().toLowerCase()));
+    let existingKeys = new Set<string>();
+    try {
+      const existing = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${TAB_NAME}'!A:H`,
+      });
+      existingKeys = new Set((existing.data.values || []).map(r => keyOf(r)));
+    } catch {
+      // Tab unreadable (e.g. doesn't exist yet) — fall through, append handles creation errors
+    }
+
+    const newValues = values.filter(v => !existingKeys.has(keyOf(v)));
+    const skipped = values.length - newValues.length;
+
+    if (newValues.length > 0) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${TAB_NAME}'!A:L`,
+        valueInputOption: 'RAW',
+        requestBody: { values: newValues },
+      });
+    }
 
     return new Response(JSON.stringify({
       success: true,
-      rowsWritten: values.length,
+      rowsWritten: newValues.length,
+      duplicatesSkipped: skipped,
     }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

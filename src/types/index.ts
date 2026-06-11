@@ -123,12 +123,21 @@ export interface DailyEntry {
 
 export interface SyncQueueItem {
   id: string;
+  /** For 'entry' items: the DailyEntry id. For 'media' items: the MediaItem id. For 'sample' items: the sample id (e.g. "S9"). */
   entryId: string;
-  type: 'entry' | 'media';
+  type: 'entry' | 'media' | 'sample';
   status: 'pending' | 'syncing' | 'failed';
   retryCount: number;
   lastAttempt: string | null;
   createdAt: string;
+  /** Don't attempt again before this time (exponential backoff). Manual "Sync now" ignores it. */
+  nextAttemptAt?: string | null;
+  /** True when the failure can never succeed (e.g. file too large) — excluded from retries and pending count. */
+  permanent?: boolean;
+  /** Human-readable reason for the last failure. */
+  lastError?: string;
+  /** Type-specific data — for 'sample' items, { rows: [...] } for compost-sampling-write. */
+  payload?: unknown;
 }
 
 export interface MediaItem {

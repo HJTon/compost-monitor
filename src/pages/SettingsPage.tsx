@@ -188,7 +188,7 @@ export function SettingsPage() {
             <Button
               fullWidth
               variant="outline"
-              onClick={syncNow}
+              onClick={() => syncNow()}
               disabled={isSyncing || pendingCount === 0}
             >
               <div className="flex items-center justify-center gap-2">

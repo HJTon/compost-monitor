@@ -4,6 +4,8 @@ import { FlaskConical, Plus, Trash2, Save, ChevronDown, ChevronUp } from 'lucide
 import { Header } from '@/components/Header';
 import { SaveConfirmModal, type SaveConfirmIssue } from '@/components/SaveConfirmModal';
 import { useCompost } from '@/contexts/CompostContext';
+import { queueSampleSync } from '@/services/syncService';
+import { fetchJsonWithRetry } from '@/utils/fetchRetry';
 import { getNZDate, TEMP_UPPER_LIMIT_F, TEMP_ABSOLUTE_LOWER_F } from '@/utils/config';
 
 const METHOD_OPTIONS = ['New tool', 'Auger', 'Layered', 'Dug', 'Other'] as const;
@@ -32,7 +34,7 @@ function newProbeSample(probe = '', sub = ''): ProbeSample {
 export function SampleEntryPage() {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
-  const { getSystem, addToast } = useCompost();
+  const { getSystem, addToast, syncNow } = useCompost();
 
   const system = systemId ? getSystem(systemId) : undefined;
 
@@ -54,10 +56,10 @@ export function SampleEntryPage() {
     { sampleId: string; issue: SaveConfirmIssue } | null
   >(null);
 
-  // Fetch next sample ID on mount
+  // Fetch next sample ID on mount (retries transient failures so a single
+  // flaky request doesn't leave the ID stuck on "S?")
   useEffect(() => {
-    fetch('/.netlify/functions/compost-sampling-next-id')
-      .then(r => r.json())
+    fetchJsonWithRetry<{ nextId?: string }>('/.netlify/functions/compost-sampling-next-id')
       .then(data => {
         setSampleId(data.nextId || 'S1');
         setLoadingId(false);
@@ -145,16 +147,13 @@ export function SampleEntryPage() {
         notes: s.notes,
       }));
 
-      const res = await fetch('/.netlify/functions/compost-sampling-write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
-      });
-
-      if (!res.ok) throw new Error('Failed to save');
-
-      const data = await res.json();
-      addToast('success', `Sample ${sampleId} logged — ${data.rowsWritten} rows saved`);
+      // Queue first, then sync: the rows are safe in IndexedDB immediately,
+      // so a dropped connection can't lose them — the sync engine retries
+      // until they reach the Sampling Log (the server skips duplicates, so
+      // retries can't double-write).
+      await queueSampleSync(sampleId, rows);
+      addToast('success', `Sample ${sampleId} logged — ${rows.length} row${rows.length === 1 ? '' : 's'} saved, syncing to the sheet`);
+      syncNow(true);
       navigate('/dashboard?tab=sample');
     } catch {
       addToast('error', 'Failed to save sample data');
@@ -348,12 +347,18 @@ export function SampleEntryPage() {
                         <span className="text-sm font-medium text-gray-800">{label}</span>
                         {detail && <span className="ml-2 text-xs text-gray-400">{detail}</span>}
                       </div>
-                      <button
+                      {/* span, not button — this row header is itself a <button>
+                          and nested buttons are invalid HTML (React warns, and
+                          some browsers mis-route the click) */}
+                      <span
+                        role="button"
+                        tabIndex={0}
                         onClick={e => { e.stopPropagation(); removeProbe(s.id); }}
-                        className="p-1 text-gray-300 hover:text-red-400 transition-colors shrink-0"
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); removeProbe(s.id); } }}
+                        className="p-1 text-gray-300 hover:text-red-400 transition-colors shrink-0 cursor-pointer"
                       >
                         <Trash2 size={14} />
-                      </button>
+                      </span>
                       {isExpanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
                     </button>
 

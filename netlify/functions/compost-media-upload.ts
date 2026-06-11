@@ -111,6 +111,32 @@ export default async (request: Request, _context: Context) => {
       }
     }
 
+    // Idempotency: if a file with this exact name already exists in the
+    // target folder, the previous attempt actually succeeded but the
+    // response was lost on a flaky connection — return the existing file
+    // instead of creating a duplicate. (Client filenames embed a unique
+    // timestamp, so name collisions only happen on genuine retries.)
+    const escapedName = filename.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const existing = await drive.files.list({
+      q: `name='${escapedName}' and '${targetFolderId}' in parents and trashed=false`,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      fields: 'files(id,webViewLink)',
+    });
+    if (existing.data.files && existing.data.files.length > 0) {
+      const dupe = existing.data.files[0];
+      return new Response(JSON.stringify({
+        success: true,
+        fileId: dupe.id,
+        webViewLink: dupe.webViewLink,
+        filename,
+        deduplicated: true,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
     // Build a readable stream from the buffer for the googleapis upload
     const uploadStream = new Readable();
     uploadStream.push(buffer);

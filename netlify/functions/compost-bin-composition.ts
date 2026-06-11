@@ -114,6 +114,8 @@ export default async (request: Request, _context: Context) => {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        // Bin Tracker contents change rarely — cache at the edge for 5 min.
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
       },
     });
 

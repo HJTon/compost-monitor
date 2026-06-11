@@ -48,16 +48,31 @@ function colLetter(index: number): string {
   return letter;
 }
 
-async function ensureSheetTab(sheets: ReturnType<typeof getGoogleSheetsClient>, spreadsheetId: string, tabName: string, probeCount: number): Promise<void> {
+interface TabInfo {
+  sheetId: number | null;
+  /** Current grid width — needed because values writes can't extend the
+   * grid; new columns (EntryId, observations) require an explicit
+   * appendDimension first. */
+  columnCount: number;
+}
+
+async function ensureSheetTab(sheets: ReturnType<typeof getGoogleSheetsClient>, spreadsheetId: string, tabName: string, probeCount: number): Promise<TabInfo> {
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-  const exists = spreadsheet.data.sheets?.some((s: any) => s.properties?.title === tabName);
-  if (exists) return;
+  const existing = spreadsheet.data.sheets?.find((s: any) => s.properties?.title === tabName);
+  if (existing) {
+    return {
+      sheetId: existing.properties?.sheetId ?? null,
+      columnCount: existing.properties?.gridProperties?.columnCount ?? 26,
+    };
+  }
 
   // Create the tab
-  await sheets.spreadsheets.batchUpdate({
+  const addRes = await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] },
   });
+  const sheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+  const columnCount = addRes.data.replies?.[0]?.addSheet?.properties?.gridProperties?.columnCount ?? 26;
 
   // Write headers
   const probeHeaders = Array.from({ length: probeCount }, (_, i) => `Probe ${i + 1}`);
@@ -68,9 +83,14 @@ async function ensureSheetTab(sheets: ReturnType<typeof getGoogleSheetsClient>, 
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [headers] },
   });
+  return { sheetId, columnCount };
 }
 
 interface WriteRequest {
+  /** Client-generated entry id. When provided, an existing row with the same
+   * EntryId is updated in place — making retries and "update today's
+   * reading" idempotent instead of appending duplicate rows. */
+  entryId?: string;
   tab: string;
   probeCount?: number;  // optional override — used for custom systems with non-9 probes
   date: string;
@@ -129,9 +149,81 @@ export default async (request: Request, _context: Context) => {
     const body: WriteRequest = await request.json();
     const sheetTab = SYSTEM_TAB_MAP[body.tab] || body.tab;
 
-    // Build minimal row — just the fixed-position leading columns (Date..Probes + 2 formula slots).
-    // Vent/Visual/General/Media are written by header name afterwards so they land in the correct
-    // column on every sheet variant (some Pivot sheets have non-standard header ordering).
+    const sheets = getGoogleSheetsClient();
+
+    // probeCount: use explicit override (for custom systems) or fall back to lookup
+    const resolvedProbeCount = body.probeCount || getProbeCount(body.tab);
+
+    // Create tab with headers if it doesn't exist yet
+    const tabInfo = await ensureSheetTab(sheets, spreadsheetId, sheetTab, resolvedProbeCount);
+
+    // --- Header scan (up front, so named-column writes and the EntryId
+    // upsert lookup can both use it) -----------------------------------
+    const headerRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${sheetTab}'!A1:AZ5`,
+    });
+    const headerRows = headerRes.data.values || [];
+
+    // Pick the header row (first row with ≥2 known header keywords)
+    const HEADER_KEYWORDS = ['date', 'time', 'weather', 'averag', 'peak', 'height', 'moisture', 'probe', 'odour', 'ambient'];
+    let pickedHeader: string[] = [];
+    let headerRowNum = 1; // 1-based sheet row the header lives on
+    for (let i = 0; i < headerRows.length; i++) {
+      const lowered = (headerRows[i] || []).map((c: string) => (c || '').toLowerCase().trim());
+      const matches = lowered.filter(c => HEADER_KEYWORDS.some(k => c.includes(k))).length;
+      if (matches >= 2) { pickedHeader = headerRows[i] || []; headerRowNum = i + 1; break; }
+    }
+    const headerUsable = pickedHeader.length >= 2;
+
+    // Headers we may need to add (missing observation columns, EntryId).
+    // Collected here and written together with the data cells below.
+    const effectiveHeader = [...pickedHeader];
+    const headerAppends: string[] = [];
+    const ensureHeaderCol = (name: string): number => {
+      const lower = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
+      const target = name.toLowerCase();
+      const idx = lower.indexOf(target);
+      if (idx >= 0) return idx;
+      effectiveHeader.push(name);
+      headerAppends.push(name);
+      return effectiveHeader.length - 1;
+    };
+
+    const hasObservations = !!(body.observations && Object.keys(body.observations).length > 0);
+    if (hasObservations && headerUsable) {
+      for (const h of OBSERVATION_HEADERS) ensureHeaderCol(h);
+    }
+
+    // --- EntryId upsert lookup ----------------------------------------
+    // Find the EntryId column; if the entry was written before, we update
+    // that row instead of appending a duplicate.
+    let entryIdColIdx: number | null = null;
+    let existingRowNum: number | null = null;
+    if (body.entryId && headerUsable) {
+      const lowerNoSpace = pickedHeader.map((c: string) => (c || '').toLowerCase().replace(/\s+/g, ''));
+      const found = lowerNoSpace.indexOf('entryid');
+      if (found >= 0) {
+        entryIdColIdx = found;
+        const colRes = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `'${sheetTab}'!${colLetter(found)}:${colLetter(found)}`,
+        });
+        const colVals = colRes.data.values || [];
+        for (let i = colVals.length - 1; i >= 0; i--) {
+          if (((colVals[i]?.[0] as string) || '').trim() === body.entryId) {
+            existingRowNum = i + 1;
+            break;
+          }
+        }
+      } else {
+        // Column doesn't exist yet — add it; nothing to look up.
+        entryIdColIdx = ensureHeaderCol('EntryId');
+      }
+    }
+    const isUpdate = existingRowNum !== null;
+
+    // --- Write the main row (update in place, or append) ---------------
     const probeValues = body.probes.map(v => v !== null ? v : '');
     const row = [
       body.date,
@@ -145,212 +237,175 @@ export default async (request: Request, _context: Context) => {
       '', '', // Average, Peak — formulas added below
     ];
 
-    const sheets = getGoogleSheetsClient();
-
-    // probeCount: use explicit override (for custom systems) or fall back to lookup
-    const resolvedProbeCount = body.probeCount || getProbeCount(body.tab);
-
-    // Create tab with headers if it doesn't exist yet
-    await ensureSheetTab(sheets, spreadsheetId, sheetTab, resolvedProbeCount);
-
-    // Append the row
-    const appendResult = await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: `'${sheetTab}'!A:A`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: {
-        values: [row],
-      },
-    });
-
-    // Get the row number that was written to, then update formulas
-    const updatedRange = appendResult.data.updates?.updatedRange;
-    if (updatedRange) {
+    let rowNum: number | null = null;
+    let updatedRange: string | undefined;
+    if (existingRowNum !== null) {
+      rowNum = existingRowNum;
+      updatedRange = `'${sheetTab}'!A${rowNum}`;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: updatedRange,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [row] },
+      });
+    } else {
+      const appendResult = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `'${sheetTab}'!A:A`,
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [row] },
+      });
+      updatedRange = appendResult.data.updates?.updatedRange ?? undefined;
       // Extract row number from range like "'Pivot #1'!A5:T5"
-      const match = updatedRange.match(/!.*?(\d+)/);
-      if (match) {
-        const rowNum = match[1];
-        const probeCount = resolvedProbeCount;
-        // Row layout: Date(A), Time(B), Weather(C), AmbMin(D), AmbMax(E), Moisture(F), Odour(G), Probes(H...)
-        // First probe col = H (index 7), last probe col = H + probeCount - 1
-        const firstProbeCol = colLetter(7); // H
-        const lastProbeCol = colLetter(7 + probeCount - 1);
-        const avgCol = colLetter(7 + probeCount);
-        const peakCol = colLetter(7 + probeCount + 1);
+      const match = updatedRange?.match(/!.*?(\d+)/);
+      if (match) rowNum = parseInt(match[1], 10);
+    }
 
-        const avgFormula = `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,AVERAGE(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`;
-        const peakFormula = `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,MAX(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`;
+    // --- Everything else lands in one batched write --------------------
+    if (rowNum !== null) {
+      const dataWrites: { range: string; values: (string | number)[][] }[] = [];
+      const writeCell = (colIdx: number, value: string | number) => {
+        dataWrites.push({
+          range: `'${sheetTab}'!${colLetter(colIdx)}${rowNum}`,
+          values: [[value]],
+        });
+      };
 
-        await sheets.spreadsheets.values.update({
+      // New header columns (observations / EntryId) appended at the end of
+      // the header row. The grid must be widened first — values writes fail
+      // with "exceeds grid limits" if the new columns are past the current
+      // sheet width.
+      if (headerAppends.length > 0) {
+        if (tabInfo.sheetId !== null && effectiveHeader.length > tabInfo.columnCount) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              requests: [{
+                appendDimension: {
+                  sheetId: tabInfo.sheetId,
+                  dimension: 'COLUMNS',
+                  length: effectiveHeader.length - tabInfo.columnCount,
+                },
+              }],
+            },
+          });
+        }
+        const startIdx = effectiveHeader.length - headerAppends.length;
+        dataWrites.push({
+          range: `'${sheetTab}'!${colLetter(startIdx)}${headerRowNum}:${colLetter(effectiveHeader.length - 1)}${headerRowNum}`,
+          values: [headerAppends],
+        });
+      }
+
+      // Average / Peak formulas
+      const probeCount = resolvedProbeCount;
+      const firstProbeCol = colLetter(7); // H
+      const lastProbeCol = colLetter(7 + probeCount - 1);
+      const avgCol = 7 + probeCount;
+      const peakCol = 7 + probeCount + 1;
+      writeCell(avgCol, `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,AVERAGE(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`);
+      writeCell(peakCol, `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,MAX(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`);
+
+      const hLower = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
+      const findColByTerms = (...terms: string[]): number =>
+        hLower.findIndex(c => terms.some(t => c.includes(t)));
+
+      // Vent temps / notes / media — written by header name so they land in
+      // the right column on every sheet variant. When updating an existing
+      // row we also write empty values, so cleared fields actually clear.
+      const ventIdx = findColByTerms('vent');
+      if (ventIdx >= 0 && (body.ventTemps || isUpdate)) writeCell(ventIdx, body.ventTemps || '');
+
+      const visualIdx = findColByTerms('visual');
+      const generalIdx = hLower.findIndex((c, i) => i !== visualIdx && c.includes('general'));
+      const singleNotesIdx = visualIdx < 0 && generalIdx < 0
+        ? hLower.findIndex(c => c.includes('note'))
+        : -1;
+
+      if (visualIdx >= 0 && (body.visualNotes || isUpdate)) writeCell(visualIdx, body.visualNotes || '');
+      if (generalIdx >= 0 && (body.generalNotes || isUpdate)) {
+        writeCell(generalIdx, body.generalNotes || '');
+      } else if (generalIdx < 0 && visualIdx >= 0 && body.generalNotes) {
+        // No general col but we do have visual — fall back: find any other "note" col
+        const altNoteIdx = hLower.findIndex((c, i) => i !== visualIdx && c.includes('note'));
+        if (altNoteIdx >= 0) writeCell(altNoteIdx, body.generalNotes);
+      }
+      if (singleNotesIdx >= 0) {
+        const combined = [body.visualNotes, body.generalNotes].filter(Boolean).join('\n');
+        if (combined || isUpdate) writeCell(singleNotesIdx, combined);
+      }
+
+      // Media links
+      const mediaIdx = findColByTerms('media');
+      if (mediaIdx >= 0 && (body.mediaLinks.length > 0 || isUpdate)) {
+        writeCell(mediaIdx, body.mediaLinks.join('\n'));
+      }
+
+      // Observations — stored as an integer (0..4). Non-zero values are
+      // written; on update, zeros clear the cell so removed observations
+      // don't linger from the previous version of the row.
+      if (hasObservations) {
+        for (const [headerName, intensity] of Object.entries(body.observations!)) {
+          const idx = hLower.indexOf(headerName.toLowerCase());
+          if (idx < 0) continue;
+          if (intensity && intensity >= 1) writeCell(idx, intensity);
+          else if (isUpdate) writeCell(idx, '');
+        }
+      }
+
+      // Height / Turn / new dimensions — header scanned across all rows
+      // (some sheets keep these on a second header row)
+      const findCol = (keyword: string): number => {
+        const idx = hLower.findIndex(c => c.includes(keyword));
+        if (idx >= 0) return idx;
+        for (const hRow of headerRows) {
+          const i = (hRow || []).findIndex((c: string) => (c || '').toLowerCase().trim().includes(keyword));
+          if (i >= 0) return i;
+        }
+        return -1;
+      };
+
+      if (body.height != null || isUpdate) {
+        const heightColIdx = findCol('height');
+        if (heightColIdx >= 0 && (body.height != null || isUpdate)) {
+          writeCell(heightColIdx, body.height != null ? body.height : '');
+        }
+      }
+      if (body.turn || isUpdate) {
+        const turnColIdx = findCol('turn');
+        if (turnColIdx >= 0) writeCell(turnColIdx, body.turn ? 'Yes' : '');
+      }
+      if (body.newWidth != null || isUpdate) {
+        const widthColIdx = findCol('width');
+        if (widthColIdx >= 0) writeCell(widthColIdx, body.newWidth != null ? body.newWidth : '');
+      }
+      if (body.newLength != null || isUpdate) {
+        let lengthColIdx = findCol('length');
+        if (lengthColIdx < 0) lengthColIdx = findCol('lenth'); // handle typo in some sheets
+        if (lengthColIdx >= 0) writeCell(lengthColIdx, body.newLength != null ? body.newLength : '');
+      }
+
+      // EntryId marker for future upserts
+      if (body.entryId && entryIdColIdx !== null) {
+        writeCell(entryIdColIdx, body.entryId);
+      }
+
+      if (dataWrites.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId,
-          range: `'${sheetTab}'!${avgCol}${rowNum}:${peakCol}${rowNum}`,
-          valueInputOption: 'USER_ENTERED',
           requestBody: {
-            values: [[avgFormula, peakFormula]],
+            valueInputOption: 'USER_ENTERED',
+            data: dataWrites,
           },
         });
-
-        // Always scan headers so vent/visual/general/media land in the right columns
-        // for each sheet variant.
-        const headerRes = await sheets.spreadsheets.values.get({
-          spreadsheetId,
-          range: `'${sheetTab}'!A1:AZ5`,
-        });
-        const headerRows = headerRes.data.values || [];
-
-        // Pick the header row (first row with ≥2 known header keywords)
-        const HEADER_KEYWORDS = ['date', 'time', 'weather', 'averag', 'peak', 'height', 'moisture', 'probe', 'odour', 'ambient'];
-        let pickedHeader: string[] = [];
-        for (const hr of headerRows) {
-          const lowered = (hr || []).map((c: string) => (c || '').toLowerCase().trim());
-          const matches = lowered.filter(c => HEADER_KEYWORDS.some(k => c.includes(k))).length;
-          if (matches >= 2) { pickedHeader = hr || []; break; }
-        }
-        const hLower = pickedHeader.map((c: string) => (c || '').toLowerCase().trim());
-
-        const findColByTerms = (...terms: string[]): number =>
-          hLower.findIndex(c => terms.some(t => c.includes(t)));
-
-        const writeCell = async (colIdx: number, value: string | number) => {
-          await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `'${sheetTab}'!${colLetter(colIdx)}${rowNum}`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: [[value]] },
-          });
-        };
-
-        // Vent temps
-        const ventIdx = findColByTerms('vent');
-        if (ventIdx >= 0 && body.ventTemps) await writeCell(ventIdx, body.ventTemps);
-
-        // Visual / General notes — use header names; if the sheet has only a single
-        // "Notes" column, merge visual+general into it.
-        const visualIdx = findColByTerms('visual');
-        const generalIdx = hLower.findIndex((c, i) => i !== visualIdx && c.includes('general'));
-        const singleNotesIdx = visualIdx < 0 && generalIdx < 0
-          ? hLower.findIndex(c => c.includes('note'))
-          : -1;
-
-        if (visualIdx >= 0 && body.visualNotes) await writeCell(visualIdx, body.visualNotes);
-        if (generalIdx >= 0 && body.generalNotes) {
-          await writeCell(generalIdx, body.generalNotes);
-        } else if (visualIdx >= 0 && body.generalNotes) {
-          // No general col but we do have visual — fall back: find any other "note" col
-          const altNoteIdx = hLower.findIndex((c, i) => i !== visualIdx && c.includes('note'));
-          if (altNoteIdx >= 0) await writeCell(altNoteIdx, body.generalNotes);
-        }
-        if (singleNotesIdx >= 0) {
-          const combined = [body.visualNotes, body.generalNotes].filter(Boolean).join('\n');
-          if (combined) await writeCell(singleNotesIdx, combined);
-        }
-
-        // Media links
-        const mediaIdx = findColByTerms('media');
-        if (mediaIdx >= 0 && body.mediaLinks.length > 0) {
-          await writeCell(mediaIdx, body.mediaLinks.join('\n'));
-        }
-
-        // Observations — auto-extend the header row with any observation
-        // columns that aren't present yet, then write the intensity value.
-        // Stored as an integer (0..4). We only write non-zero values so the
-        // spreadsheet stays visually clean.
-        if (body.observations && Object.keys(body.observations).length > 0) {
-          const presentLower = new Set(hLower);
-          const missing = OBSERVATION_HEADERS.filter(h => !presentLower.has(h.toLowerCase()));
-          let effectiveHeader = pickedHeader;
-          if (missing.length > 0) {
-            // Append missing headers to the END of the header row
-            const startIdx = effectiveHeader.length;
-            const endIdx = startIdx + missing.length - 1;
-            await sheets.spreadsheets.values.update({
-              spreadsheetId,
-              range: `'${sheetTab}'!${colLetter(startIdx)}1:${colLetter(endIdx)}1`,
-              valueInputOption: 'RAW',
-              requestBody: { values: [missing] },
-            });
-            effectiveHeader = [...effectiveHeader, ...missing];
-          }
-          const effLower = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
-          for (const [headerName, intensity] of Object.entries(body.observations)) {
-            if (!intensity || intensity < 1) continue;
-            const idx = effLower.indexOf(headerName.toLowerCase());
-            if (idx >= 0) {
-              await writeCell(idx, intensity);
-            }
-          }
-        }
-
-        const needsHeaderScan = body.height != null || body.turn || body.newWidth != null || body.newLength != null;
-        if (needsHeaderScan) {
-          const findCol = (keyword: string): number => {
-            for (const hRow of headerRows) {
-              const idx = (hRow || []).findIndex((c: string) => (c || '').toLowerCase().trim().includes(keyword));
-              if (idx >= 0) return idx;
-            }
-            return -1;
-          };
-
-          // Write height
-          if (body.height != null) {
-            const heightColIdx = findCol('height');
-            if (heightColIdx >= 0) {
-              await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetTab}'!${colLetter(heightColIdx)}${rowNum}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[body.height]] },
-              });
-            }
-          }
-
-          // Write Turn marker
-          if (body.turn) {
-            const turnColIdx = findCol('turn');
-            if (turnColIdx >= 0) {
-              await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetTab}'!${colLetter(turnColIdx)}${rowNum}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [['Yes']] },
-              });
-            }
-          }
-
-          // Write new width
-          if (body.newWidth != null) {
-            const widthColIdx = findCol('width');
-            if (widthColIdx >= 0) {
-              await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetTab}'!${colLetter(widthColIdx)}${rowNum}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[body.newWidth]] },
-              });
-            }
-          }
-
-          // Write new length
-          if (body.newLength != null) {
-            let lengthColIdx = findCol('length');
-            if (lengthColIdx < 0) lengthColIdx = findCol('lenth'); // handle typo in some sheets
-            if (lengthColIdx >= 0) {
-              await sheets.spreadsheets.values.update({
-                spreadsheetId,
-                range: `'${sheetTab}'!${colLetter(lengthColIdx)}${rowNum}`,
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values: [[body.newLength]] },
-              });
-            }
-          }
-        }
       }
     }
 
     return new Response(JSON.stringify({
       success: true,
-      message: `Row appended to ${sheetTab}`,
+      message: isUpdate ? `Row ${rowNum} updated in ${sheetTab}` : `Row appended to ${sheetTab}`,
+      updated: isUpdate,
       updatedRange,
     }), {
       status: 200,

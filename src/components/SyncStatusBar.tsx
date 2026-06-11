@@ -34,7 +34,7 @@ export function SyncStatusBar() {
           <span>{pendingCount} pending</span>
         </div>
         <button
-          onClick={syncNow}
+          onClick={() => syncNow()}
           className="text-amber-700 text-sm font-medium underline"
         >
           Sync now

@@ -2,7 +2,12 @@ import { useRef, useEffect } from 'react';
 import { X, Camera, Video } from 'lucide-react';
 import { saveMedia } from '@/services/db';
 import { generateId } from '@/utils/config';
+import { useCompost } from '@/contexts/CompostContext';
 import type { MediaItem } from '@/types';
+
+/** Server rejects uploads over 4 MB (Netlify function body limit). Photos are
+ * compressed below this automatically; videos can't be, so check up front. */
+const MAX_VIDEO_BYTES = 4 * 1024 * 1024;
 
 interface MediaCaptureProps {
   entryId: string;
@@ -17,6 +22,7 @@ interface MediaCaptureProps {
 export function MediaCapture({ entryId, systemId, systemName: _systemName, date, mode, onCapture, onClose }: MediaCaptureProps) {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const { addToast } = useCompost();
 
   // When a specific mode is provided, skip the menu and trigger the input directly
   useEffect(() => {
@@ -63,6 +69,16 @@ export function MediaCapture({ entryId, systemId, systemName: _systemName, date,
   const handleVideoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Reject oversized videos at capture time with a clear explanation,
+    // rather than letting the upload fail silently in the sync queue later.
+    if (file.size > MAX_VIDEO_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      addToast('error', `That video is ${mb} MB — uploads are limited to 4 MB (roughly 10–15 seconds). Please record a shorter clip.`);
+      e.target.value = '';
+      onClose();
+      return;
+    }
 
     const safeName = systemId.replace(/[^a-zA-Z0-9]/g, '-');
     const timestamp = Date.now().toString(36);

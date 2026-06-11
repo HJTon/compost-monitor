@@ -20,10 +20,11 @@ interface ToastProps {
 
 function ToastItem({ toast, onDismiss }: ToastProps) {
   useEffect(() => {
-    if (!toast.action) {
-      const timer = setTimeout(() => onDismiss(toast.id), 5000);
-      return () => clearTimeout(timer);
-    }
+    // All toasts auto-dismiss — toasts with an action linger a little longer.
+    // (They previously stayed forever, which filled the screen with stale
+    // sync messages on a flaky connection.)
+    const timer = setTimeout(() => onDismiss(toast.id), toast.action ? 8000 : 5000);
+    return () => clearTimeout(timer);
   }, [toast.id, toast.action, onDismiss]);
 
   const bgColor = {

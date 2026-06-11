@@ -66,6 +66,9 @@ export default async (request: Request, _context: Context) => {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        // CDN-only cache to absorb repeat reads (e.g. the Sampling Log read
+        // fired on every Analyse/Compare load) without browsers caching.
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
       },
     });
   } catch (error) {

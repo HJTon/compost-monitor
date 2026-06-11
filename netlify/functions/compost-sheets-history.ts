@@ -320,6 +320,12 @@ export default async (request: Request, _context: Context) => {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        // CDN-only cache: repeat loads (and the 6 parallel Analyse-page
+        // calls from multiple devices) are served from the edge instead of
+        // hammering the Sheets API, which was causing 429s and blank charts.
+        // Browsers don't cache (no Cache-Control), so a hard refresh after
+        // 30s always reflects new readings.
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
       },
     });
   } catch (error) {
