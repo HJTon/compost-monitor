@@ -237,8 +237,26 @@ export default async (request: Request, _context: Context) => {
     }
     const isUpdate = existingRowNum !== null;
 
+    // --- Resolve the sheet's REAL probe / Average / Peak layout --------
+    // A build's probe count can be reduced in the app after its tab was
+    // created with a wider header (e.g. CC4: header has Probe 1-9 with
+    // Average in col Q, but the build now uses 3 probes). Formulas must
+    // land in the sheet's actual Average/Peak columns — computing them as
+    // 7 + requestProbeCount put formulas inside the Probe 4/5 columns and
+    // left the real Average blank, so charts cut off at that date.
+    const hLowerAll = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
+    const headerAvgIdx = hLowerAll.findIndex(c => c.includes('averag'));
+    const headerPeakIdx = hLowerAll.findIndex(c => c.includes('peak'));
+    const useHeaderLayout = headerAvgIdx > 7 && body.probes.length <= headerAvgIdx - 7;
+    const sheetProbeCount = useHeaderLayout ? headerAvgIdx - 7 : Math.max(body.probes.length, 1);
+    const avgColIdx = useHeaderLayout ? headerAvgIdx : 7 + sheetProbeCount;
+    const peakColIdx = useHeaderLayout && headerPeakIdx > headerAvgIdx ? headerPeakIdx : avgColIdx + 1;
+
     // --- Write the main row (update in place, or append) ---------------
-    const probeValues = body.probes.map(v => v !== null ? v : '');
+    // Probes are padded to the sheet's probe-column count so the two
+    // trailing placeholders always line up with the Average/Peak columns.
+    const probeValues: (number | string)[] = body.probes.map(v => v !== null ? v : '');
+    while (probeValues.length < sheetProbeCount) probeValues.push('');
     const row = [
       body.date,
       body.time,
@@ -312,22 +330,21 @@ export default async (request: Request, _context: Context) => {
         });
       }
 
-      // Average / Peak formulas. Extra one-off readings are embedded as
+      // Average / Peak formulas — written to the sheet's real Average/Peak
+      // columns, spanning ALL probe columns in the header (blank ones are
+      // ignored by AVERAGE/MAX). Extra one-off readings are embedded as
       // literals so they count toward the row's average and (importantly
       // for the kill cycle) its peak, without occupying probe columns.
-      const probeCount = resolvedProbeCount;
       const firstProbeCol = colLetter(7); // H
-      const lastProbeCol = colLetter(7 + probeCount - 1);
-      const avgCol = 7 + probeCount;
-      const peakCol = 7 + probeCount + 1;
+      const lastProbeCol = colLetter(7 + sheetProbeCount - 1);
       const probeRange = `${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}`;
       if (extras.length > 0) {
         const literals = extras.map(e => e.value).join(',');
-        writeCell(avgCol, `=AVERAGE(${probeRange},${literals})`);
-        writeCell(peakCol, `=MAX(${probeRange},${literals})`);
+        writeCell(avgColIdx, `=AVERAGE(${probeRange},${literals})`);
+        writeCell(peakColIdx, `=MAX(${probeRange},${literals})`);
       } else {
-        writeCell(avgCol, `=IF(COUNTA(${probeRange})>0,AVERAGE(${probeRange}),"")`);
-        writeCell(peakCol, `=IF(COUNTA(${probeRange})>0,MAX(${probeRange}),"")`);
+        writeCell(avgColIdx, `=IF(COUNTA(${probeRange})>0,AVERAGE(${probeRange}),"")`);
+        writeCell(peakColIdx, `=IF(COUNTA(${probeRange})>0,MAX(${probeRange}),"")`);
       }
 
       const hLower = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
