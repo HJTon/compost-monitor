@@ -222,7 +222,15 @@ async function syncMediaToDrive(mediaId: string): Promise<AttemptResult> {
 
 async function syncEntryToSheet(entry: DailyEntry): Promise<AttemptResult> {
   try {
-    const probeValues = entry.probes.map(p => p.value);
+    // Extra one-off readings (added via the probe mini-map, labelled '+N')
+    // travel separately from the standard probes: they must not shift the
+    // sheet's fixed probe columns. The server folds them into the row's
+    // Average/Peak formulas and an "Extra Readings" column.
+    const standardProbes = entry.probes.filter(p => !p.label?.startsWith('+'));
+    const extraReadings = entry.probes
+      .filter(p => p.label?.startsWith('+') && p.value !== null)
+      .map(p => ({ label: p.label, value: p.value as number }));
+    const probeValues = standardProbes.map(p => p.value);
     const sheetTab = await resolveSheetTab(entry.systemId);
 
     // Collect Drive URLs for any media already uploaded for this entry
@@ -239,7 +247,7 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<AttemptResult> {
         // reading" update the existing row instead of appending a duplicate.
         entryId: entry.id,
         tab: sheetTab,
-        probeCount: entry.probes.length,
+        probeCount: standardProbes.length,
         date: entry.date,
         time: entry.time,
         weather: entry.weather,
@@ -248,6 +256,7 @@ async function syncEntryToSheet(entry: DailyEntry): Promise<AttemptResult> {
         moisture: entry.moisture,
         odour: entry.odour,
         probes: probeValues,
+        extraReadings,
         ventTemps: entry.ventTemps,
         visualNotes: entry.visualNotes,
         generalNotes: entry.generalNotes,

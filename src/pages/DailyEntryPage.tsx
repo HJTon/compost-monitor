@@ -6,6 +6,7 @@ import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { TempStepper } from '@/components/TempStepper';
 import { TempGrid } from '@/components/TempGrid';
+import { ProbeMiniMap } from '@/components/ProbeMiniMap';
 import { MediaCapture } from '@/components/MediaCapture';
 import { SaveConfirmModal, type SaveConfirmIssue } from '@/components/SaveConfirmModal';
 import { useCompost } from '@/contexts/CompostContext';
@@ -253,7 +254,11 @@ export function DailyEntryPage() {
     if (!entry) return;
     setSaving(true);
     try {
-      await saveEntry({ ...entry, time: getNZTime() });
+      // Drop extra-reading cells that were added but never filled in
+      const probes = entry.probes
+        .filter(p => !(p.label.startsWith('+') && p.value === null))
+        .map((p, i) => ({ ...p, probeIndex: i }));
+      await saveEntry({ ...entry, probes, time: getNZTime() });
       addToast('success', `${system?.name || 'Entry'} saved`);
       navigate('/dashboard');
     } catch (err) {
@@ -272,9 +277,11 @@ export function DailyEntryPage() {
     const upperLimit = TEMP_UPPER_LIMIT_F;
     const issues: SaveConfirmIssue[] = [];
     entry.probes.forEach((p, i) => {
-      const label = `Probe ${p.label}`;
+      const isExtra = p.label.startsWith('+');
+      const label = isExtra ? `Extra reading ${p.label}` : `Probe ${p.label}`;
       if (p.value === null) {
-        issues.push({ type: 'skipped', label });
+        // Unfilled extras are silently dropped at save, not "skipped"
+        if (!isExtra) issues.push({ type: 'skipped', label });
         return;
       }
       // Out-of-range values that the user already explicitly confirmed
@@ -557,6 +564,19 @@ export function DailyEntryPage() {
           ) : (
             <TempGrid probes={entry.probes} onChange={handleProbeChange} onProbeCommit={handleProbeCommit} unit={tempUnit} />
           )}
+
+          {/* Probe position mini-map — fills as readings come in; empty
+              squares can be tapped to log extra one-off readings (e.g. a
+              hotspot) without changing the build's probe count */}
+          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-center">
+            <ProbeMiniMap
+              probes={entry.probes}
+              standardCount={system.probeLabels.length}
+              onChange={handleProbeChange}
+              onProbeCommit={handleProbeCommit}
+              unit={tempUnit}
+            />
+          </div>
         </div>
 
         {/* Summary */}

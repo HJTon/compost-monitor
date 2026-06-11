@@ -101,6 +101,10 @@ interface WriteRequest {
   moisture: string | null;
   odour: string | null;
   probes: (number | null)[];
+  /** One-off extra readings (probe mini-map). Included in the row's
+   * Average/Peak formulas as literals and recorded in an "Extra Readings"
+   * column — they never occupy the standard probe columns. */
+  extraReadings?: { label: string; value: number }[];
   ventTemps: string;
   visualNotes: string;
   generalNotes: string;
@@ -193,6 +197,16 @@ export default async (request: Request, _context: Context) => {
     const hasObservations = !!(body.observations && Object.keys(body.observations).length > 0);
     if (hasObservations && headerUsable) {
       for (const h of OBSERVATION_HEADERS) ensureHeaderCol(h);
+    }
+
+    const extras = (body.extraReadings || []).filter(e => typeof e.value === 'number' && isFinite(e.value));
+    let extraColIdx = -1;
+    if (headerUsable) {
+      // Locate (or, when extras exist, create) the Extra Readings column
+      const existingExtraIdx = effectiveHeader.findIndex(
+        (c: string) => (c || '').toLowerCase().trim().includes('extra reading'));
+      if (existingExtraIdx >= 0) extraColIdx = existingExtraIdx;
+      else if (extras.length > 0) extraColIdx = ensureHeaderCol('Extra Readings');
     }
 
     // --- EntryId upsert lookup ----------------------------------------
@@ -298,14 +312,23 @@ export default async (request: Request, _context: Context) => {
         });
       }
 
-      // Average / Peak formulas
+      // Average / Peak formulas. Extra one-off readings are embedded as
+      // literals so they count toward the row's average and (importantly
+      // for the kill cycle) its peak, without occupying probe columns.
       const probeCount = resolvedProbeCount;
       const firstProbeCol = colLetter(7); // H
       const lastProbeCol = colLetter(7 + probeCount - 1);
       const avgCol = 7 + probeCount;
       const peakCol = 7 + probeCount + 1;
-      writeCell(avgCol, `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,AVERAGE(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`);
-      writeCell(peakCol, `=IF(COUNTA(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum})>0,MAX(${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}),"")`);
+      const probeRange = `${firstProbeCol}${rowNum}:${lastProbeCol}${rowNum}`;
+      if (extras.length > 0) {
+        const literals = extras.map(e => e.value).join(',');
+        writeCell(avgCol, `=AVERAGE(${probeRange},${literals})`);
+        writeCell(peakCol, `=MAX(${probeRange},${literals})`);
+      } else {
+        writeCell(avgCol, `=IF(COUNTA(${probeRange})>0,AVERAGE(${probeRange}),"")`);
+        writeCell(peakCol, `=IF(COUNTA(${probeRange})>0,MAX(${probeRange}),"")`);
+      }
 
       const hLower = effectiveHeader.map((c: string) => (c || '').toLowerCase().trim());
       const findColByTerms = (...terms: string[]): number =>
@@ -384,6 +407,15 @@ export default async (request: Request, _context: Context) => {
         let lengthColIdx = findCol('length');
         if (lengthColIdx < 0) lengthColIdx = findCol('lenth'); // handle typo in some sheets
         if (lengthColIdx >= 0) writeCell(lengthColIdx, body.newLength != null ? body.newLength : '');
+      }
+
+      // Extra readings — recorded as "+2: 165, +6: 80" (°F, mini-map cell
+      // numbers). Cleared on update when the entry no longer has extras.
+      // The leading apostrophe forces text: USER_ENTERED would otherwise
+      // treat the leading "+" as the start of a formula (#ERROR!).
+      if (extraColIdx >= 0 && (extras.length > 0 || isUpdate)) {
+        const text = extras.map(e => `${e.label}: ${e.value}`).join(', ');
+        writeCell(extraColIdx, text ? `'${text}` : '');
       }
 
       // EntryId marker for future upserts
