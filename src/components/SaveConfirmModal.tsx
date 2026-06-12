@@ -4,7 +4,9 @@ import { fToC } from '@/utils/config';
 export type SaveConfirmIssue =
   | { type: 'skipped'; label: string }
   | { type: 'too_low'; label: string; value: number; limit: number }
-  | { type: 'too_high'; label: string; value: number; limit: number };
+  | { type: 'too_high'; label: string; value: number; limit: number }
+  /** Saving an entry with no probe readings at all (photo/notes-only visit) */
+  | { type: 'no_temps' };
 
 interface SaveConfirmModalProps {
   issues: SaveConfirmIssue[];
@@ -40,6 +42,8 @@ function formatIssue(issue: SaveConfirmIssue, unit: 'F' | 'C'): string {
       return `${issue.label}: ${fmt(issue.value)} — below ${fmt(issue.limit)}`;
     case 'too_high':
       return `${issue.label}: ${fmt(issue.value)} — above ${fmt(issue.limit)}`;
+    case 'no_temps':
+      return 'No probe temperatures entered — everything else (photos, notes, observations) will still be saved.';
   }
 }
 

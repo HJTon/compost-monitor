@@ -272,6 +272,13 @@ export function DailyEntryPage() {
 
   const handleSave = () => {
     if (!entry) return;
+    // No temperatures at all (photo/notes-only visit) — one clear warning
+    // instead of a "skipped" bullet for every probe.
+    const anyProbeFilled = entry.probes.some(p => p.value !== null);
+    if (!anyProbeFilled) {
+      setPendingIssues([{ type: 'no_temps' }]);
+      return;
+    }
     // Build list of guardrail issues before saving
     const lowerLimit = getTempLowerLimitF(entry.ambientMax);
     const upperLimit = TEMP_UPPER_LIMIT_F;
@@ -393,6 +400,20 @@ export function DailyEntryPage() {
 
   const filledProbes = entry.probes.filter(p => p.value !== null).length;
   const isAboveKill = entry.peakTemp !== null && entry.peakTemp >= KILL_TEMP_F;
+
+  // A temp-less entry is saveable as long as it records SOMETHING the user
+  // actually added (photo, notes, observations, …). Auto-filled weather /
+  // ambient alone don't count — that would allow accidental blank rows.
+  const hasNonTempContent =
+    mediaItems.length > 0 ||
+    !!entry.visualNotes.trim() ||
+    !!entry.generalNotes.trim() ||
+    !!entry.ventTemps.trim() ||
+    entry.height !== null ||
+    !!entry.turn ||
+    entry.moisture !== null ||
+    entry.odour !== null ||
+    Object.values(entry.observations || {}).some(v => (v || 0) >= 1);
 
   return (
     <div className="min-h-screen bg-green-50/50 pb-24">
@@ -883,11 +904,15 @@ export function DailyEntryPage() {
           fullWidth
           size="lg"
           onClick={handleSave}
-          disabled={saving || filledProbes === 0}
+          disabled={saving || (filledProbes === 0 && !hasNonTempContent)}
         >
           <div className="flex items-center justify-center gap-2">
             <Save size={20} />
-            {saving ? 'Saving...' : `Save Entry (${filledProbes}/${entry.probes.length} probes)`}
+            {saving
+              ? 'Saving...'
+              : filledProbes === 0 && hasNonTempContent
+              ? 'Save Entry (no temps)'
+              : `Save Entry (${filledProbes}/${entry.probes.length} probes)`}
           </div>
         </Button>
       </div>
@@ -952,6 +977,12 @@ export function DailyEntryPage() {
             setPendingIssues(null);
             navigate(`/manage/${systemId}`);
           }}
+          {...(pendingIssues[0]?.type === 'no_temps' ? {
+            title: 'No temperatures taken',
+            subtitle: 'Are you sure you want to save this entry without any probe readings?',
+            primaryLabel: 'Go back and measure',
+            secondaryLabel: 'Yes, save without temps',
+          } : {})}
         />
       )}
 
