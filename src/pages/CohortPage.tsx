@@ -51,7 +51,7 @@ export function CohortPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { allSystems, settings } = useCompost();
-  const [useCelsius, setUseCelsius] = useState(false);
+  const [useCelsius, setUseCelsius] = useState((settings.tempUnit ?? 'C') === 'C');
   const [loading, setLoading] = useState(false);
   const [curves, setCurves] = useState<BuildCurve[]>([]);
 

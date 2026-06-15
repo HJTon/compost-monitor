@@ -244,6 +244,38 @@ export function SettingsPage() {
           </p>
         </div>
 
+        {/* Temperature unit */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-gray-900 mb-3">Temperature Unit</h3>
+          <div className="flex gap-2">
+            <button
+              onClick={() => (settings.tempUnit ?? 'C') !== 'C' && updateSettings({ tempUnit: 'C' })}
+              className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all ${
+                (settings.tempUnit ?? 'C') === 'C'
+                  ? 'bg-green-primary text-white'
+                  : 'bg-gray-100 text-gray-700'
+              }`}
+              aria-pressed={(settings.tempUnit ?? 'C') === 'C'}
+            >
+              °C
+            </button>
+            <button
+              onClick={() => (settings.tempUnit ?? 'C') !== 'F' && updateSettings({ tempUnit: 'F' })}
+              className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all ${
+                settings.tempUnit === 'F'
+                  ? 'bg-green-primary text-white'
+                  : 'bg-gray-100 text-gray-700'
+              }`}
+              aria-pressed={settings.tempUnit === 'F'}
+            >
+              °F
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            Used across the app for entering and showing temperatures. Readings are always stored in °F under the hood.
+          </p>
+        </div>
+
         {/* Farm location */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-3">

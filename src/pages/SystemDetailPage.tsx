@@ -4,13 +4,14 @@ import { Plus } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
-import { getSystemById, getTempColor } from '@/utils/config';
+import { getSystemById, getTempColor, formatTempF } from '@/utils/config';
 import type { DailyEntry } from '@/types';
 
 export function SystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
-  const { getSystemEntries } = useCompost();
+  const { getSystemEntries, settings } = useCompost();
+  const tempUnit = settings.tempUnit ?? 'C';
   const system = systemId ? getSystemById(systemId) : undefined;
   const [entries, setEntries] = useState<DailyEntry[]>([]);
 
@@ -49,10 +50,10 @@ export function SystemDetailPage() {
                   </div>
                   <div className="text-right">
                     <div className={`font-bold ${avgColor}`}>
-                      {entry.averageTemp !== null ? `${entry.averageTemp}°F` : '--'}
+                      {entry.averageTemp !== null ? formatTempF(entry.averageTemp, tempUnit) : '--'}
                     </div>
                     <div className="text-xs text-gray-400">
-                      Peak: {entry.peakTemp !== null ? `${entry.peakTemp}°F` : '--'}
+                      Peak: {entry.peakTemp !== null ? formatTempF(entry.peakTemp, tempUnit) : '--'}
                     </div>
                   </div>
                 </div>

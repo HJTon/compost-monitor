@@ -9,7 +9,7 @@ import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
-import { KILL_TEMP_F } from '@/utils/config';
+import { KILL_TEMP_F, fToC, formatTempF } from '@/utils/config';
 import type { CompostSystem, ReadinessCheck } from '@/types';
 
 // ── Fixed high-contrast palette for comparison lines ─────────────────────────
@@ -121,6 +121,7 @@ export function ComparePage() {
   const location = useLocation();
   const isPublicView = location.pathname.startsWith('/view');
   const { allSystems, settings } = useCompost();
+  const tempUnit = settings.tempUnit ?? 'C';
 
   // All systems (active first, then retired)
   const systemList = useMemo(() => {
@@ -542,7 +543,11 @@ export function ComparePage() {
                   tick={{ fontSize: 11 }}
                   interval={xInterval}
                 />
-                <YAxis tick={{ fontSize: 11 }} domain={[0, 'auto']} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  domain={[0, 'auto']}
+                  tickFormatter={(v: number) => (tempUnit === 'C' ? `${Math.round(fToC(v))}` : `${v}`)}
+                />
                 <Tooltip
                   labelFormatter={(_v, payload) => {
                     const p = payload?.[0]?.payload;
@@ -553,7 +558,7 @@ export function ComparePage() {
                     const bd = buildData.find(b => b.system.id === sysId);
                     const label = bd ? bd.system.name : sysId;
                     const suffix = name.endsWith('_peak') ? ' Peak' : ' Avg';
-                    return [`${value}°F`, `${label}${suffix}`];
+                    return [formatTempF(Number(value), tempUnit), `${label}${suffix}`];
                   }}
                   contentStyle={{ fontSize: 12 }}
                 />
@@ -564,7 +569,7 @@ export function ComparePage() {
                     y={KILL_TEMP_F}
                     stroke="#EF4444"
                     strokeDasharray="5 5"
-                    label={{ value: `${KILL_TEMP_F}°F`, fill: '#EF4444', fontSize: 10 }}
+                    label={{ value: formatTempF(KILL_TEMP_F, tempUnit), fill: '#EF4444', fontSize: 10 }}
                   />
                 )}
 
@@ -776,11 +781,11 @@ export function ComparePage() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-gray-500 sticky left-0 bg-white">Highest peak</td>
-                  {statsData.map(s => <td key={s.system.id} className="text-center px-3 py-2 text-gray-700 font-mono">{s.peakMax !== null ? `${s.peakMax}°F` : '—'}</td>)}
+                  {statsData.map(s => <td key={s.system.id} className="text-center px-3 py-2 text-gray-700 font-mono">{s.peakMax !== null ? formatTempF(s.peakMax, tempUnit) : '—'}</td>)}
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-gray-500 sticky left-0 bg-white">Mean avg temp</td>
-                  {statsData.map(s => <td key={s.system.id} className="text-center px-3 py-2 text-gray-700 font-mono">{s.avgOfAvg !== null ? `${s.avgOfAvg}°F` : '—'}</td>)}
+                  {statsData.map(s => <td key={s.system.id} className="text-center px-3 py-2 text-gray-700 font-mono">{s.avgOfAvg !== null ? formatTempF(s.avgOfAvg, tempUnit) : '—'}</td>)}
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-gray-500 sticky left-0 bg-white">Days to kill temp</td>

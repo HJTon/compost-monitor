@@ -6,7 +6,7 @@ import { SaveConfirmModal, type SaveConfirmIssue } from '@/components/SaveConfir
 import { useCompost } from '@/contexts/CompostContext';
 import { queueSampleSync } from '@/services/syncService';
 import { fetchJsonWithRetry } from '@/utils/fetchRetry';
-import { getNZDate, TEMP_UPPER_LIMIT_F, TEMP_ABSOLUTE_LOWER_F } from '@/utils/config';
+import { getNZDate, TEMP_UPPER_LIMIT_F, TEMP_ABSOLUTE_LOWER_F, cToF } from '@/utils/config';
 
 const METHOD_OPTIONS = ['New tool', 'Auger', 'Layered', 'Dug', 'Other'] as const;
 
@@ -34,9 +34,21 @@ function newProbeSample(probe = '', sub = ''): ProbeSample {
 export function SampleEntryPage() {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
-  const { getSystem, addToast, syncNow } = useCompost();
+  const { getSystem, addToast, syncNow, settings } = useCompost();
 
   const system = systemId ? getSystem(systemId) : undefined;
+
+  // Display/entry unit. Temperatures are always stored in °F (in the Sampling
+  // Log sheet and in the guardrail limits); we convert at the edges only.
+  const tempUnit: 'F' | 'C' = settings.tempUnit ?? 'C';
+  /** Convert a value the user typed (in the active unit) to °F. */
+  const toF = (displayVal: number) => (tempUnit === 'C' ? cToF(displayVal) : displayVal);
+  /** Convert a typed temp string to the °F string stored in the sheet (blank/NaN pass through). */
+  const tempToSheetF = (t: string): string => {
+    const v = parseFloat(t);
+    if (t.trim() === '' || Number.isNaN(v)) return t;
+    return tempUnit === 'C' ? String(Math.round(cToF(v) * 10) / 10) : t;
+  };
 
   // Form state
   const [date, setDate] = useState(getNZDate());
@@ -105,23 +117,24 @@ export function SampleEntryPage() {
     if (!sample || !sample.temperature.trim()) return;
     // Skip if user already confirmed this exact value
     if (confirmedTemps.get(sampleId) === sample.temperature) return;
-    const value = parseFloat(sample.temperature);
-    if (Number.isNaN(value)) return;
+    const typed = parseFloat(sample.temperature);
+    if (Number.isNaN(typed)) return;
+    const valueF = toF(typed);
     const label = sample.probe
       ? `Probe ${sample.probe}${sample.subSample ? ` (${sample.subSample})` : ''}`
       : 'Sample';
-    if (value > TEMP_UPPER_LIMIT_F) {
+    if (valueF > TEMP_UPPER_LIMIT_F) {
       setProbeCheck({
         sampleId,
-        issue: { type: 'too_high', label, value, limit: TEMP_UPPER_LIMIT_F },
+        issue: { type: 'too_high', label, value: valueF, limit: TEMP_UPPER_LIMIT_F },
       });
-    } else if (value < TEMP_ABSOLUTE_LOWER_F) {
+    } else if (valueF < TEMP_ABSOLUTE_LOWER_F) {
       setProbeCheck({
         sampleId,
-        issue: { type: 'too_low', label, value, limit: TEMP_ABSOLUTE_LOWER_F },
+        issue: { type: 'too_low', label, value: valueF, limit: TEMP_ABSOLUTE_LOWER_F },
       });
     }
-  }, [samples, confirmedTemps]);
+  }, [samples, confirmedTemps, tempUnit]);
 
   const performSave = async () => {
     if (!system || samples.length === 0) return;
@@ -140,7 +153,7 @@ export function SampleEntryPage() {
         height,
         probe: s.probe,
         subSample: s.subSample,
-        temperature: s.temperature,
+        temperature: tempToSheetF(s.temperature),
         depth: s.depth,
         method,
         handling,
@@ -175,14 +188,15 @@ export function SampleEntryPage() {
         issues.push({ type: 'skipped', label });
         continue;
       }
-      const value = parseFloat(s.temperature);
-      if (Number.isNaN(value)) continue;
+      const typed = parseFloat(s.temperature);
+      if (Number.isNaN(typed)) continue;
       // Out-of-range temps the user already confirmed per-probe are not re-raised
       if (confirmedTemps.get(s.id) === s.temperature) continue;
-      if (value > TEMP_UPPER_LIMIT_F) {
-        issues.push({ type: 'too_high', label, value, limit: TEMP_UPPER_LIMIT_F });
-      } else if (value < TEMP_ABSOLUTE_LOWER_F) {
-        issues.push({ type: 'too_low', label, value, limit: TEMP_ABSOLUTE_LOWER_F });
+      const valueF = toF(typed);
+      if (valueF > TEMP_UPPER_LIMIT_F) {
+        issues.push({ type: 'too_high', label, value: valueF, limit: TEMP_UPPER_LIMIT_F });
+      } else if (valueF < TEMP_ABSOLUTE_LOWER_F) {
+        issues.push({ type: 'too_low', label, value: valueF, limit: TEMP_ABSOLUTE_LOWER_F });
       }
     }
     if (issues.length > 0) {
@@ -332,7 +346,7 @@ export function SampleEntryPage() {
                   ? `Probe ${s.probe}${s.subSample ? ` (${s.subSample})` : ''}`
                   : 'New sample';
                 const detail = [
-                  s.temperature ? `${s.temperature}°F` : null,
+                  s.temperature ? `${s.temperature}°${tempUnit}` : null,
                   s.depth ? `${s.depth}cm` : null,
                 ].filter(Boolean).join(', ');
 
@@ -389,13 +403,13 @@ export function SampleEntryPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-xs text-gray-500 block mb-0.5">Temp (°F)</label>
+                            <label className="text-xs text-gray-500 block mb-0.5">Temp (°{tempUnit})</label>
                             <input
                               type="number"
                               value={s.temperature}
                               onChange={e => updateProbe(s.id, 'temperature', e.target.value)}
                               onBlur={() => handleTempBlur(s.id)}
-                              placeholder="e.g. 130"
+                              placeholder={tempUnit === 'C' ? 'e.g. 55' : 'e.g. 130'}
                               className="w-full px-2.5 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300"
                             />
                           </div>
@@ -462,6 +476,7 @@ export function SampleEntryPage() {
       {probeCheck && (
         <SaveConfirmModal
           issues={[probeCheck.issue]}
+          unit={tempUnit}
           title="Check this reading"
           subtitle="That temperature looks unusual — is the value correct?"
           primaryLabel="Let me fix it"
@@ -489,6 +504,7 @@ export function SampleEntryPage() {
       {pendingIssues && (
         <SaveConfirmModal
           issues={pendingIssues}
+          unit={tempUnit}
           saving={saving}
           onGoBack={() => setPendingIssues(null)}
           onSaveAnyway={performSave}

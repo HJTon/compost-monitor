@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { getSystemById } from '@/utils/config';
+import { getSystemById, formatTempF } from '@/utils/config';
 import { useCompost } from '@/contexts/CompostContext';
 import { PHOTO_SLOTS, type MediaIndexItem } from '@/utils/photoSlots';
 import { PhotoGallery } from '@/components/PhotoGallery';
@@ -15,7 +15,8 @@ interface SummaryData {
 
 export function PrintReportPage() {
   const { systemId } = useParams<{ systemId: string }>();
-  const { getSystem } = useCompost();
+  const { getSystem, settings } = useCompost();
+  const tempUnit = settings.tempUnit ?? 'C';
   const system = (systemId && (getSystem(systemId) || getSystemById(systemId))) || null;
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -100,7 +101,7 @@ export function PrintReportPage() {
           {summary.peakTemp != null && (
             <div>
               <div className="text-xs text-gray-500 uppercase tracking-wide">Peak temperature</div>
-              <div className="font-semibold">{summary.peakTemp}°F</div>
+              <div className="font-semibold">{formatTempF(summary.peakTemp, tempUnit)}</div>
             </div>
           )}
         </section>

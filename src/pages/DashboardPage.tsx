@@ -4,7 +4,7 @@ import { Thermometer, CheckCircle, Clock, FlaskConical, Leaf } from 'lucide-reac
 import { Header } from '@/components/Header';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { useCompost } from '@/contexts/CompostContext';
-import { getNZDate } from '@/utils/config';
+import { getNZDate, formatTempF } from '@/utils/config';
 import type { DailyEntry } from '@/types';
 
 type Tab = 'measure' | 'sample';
@@ -141,7 +141,7 @@ export function DashboardPage() {
                     {!isSample && card.lastEntry && (
                       <p className="text-xs text-gray-500">
                         Last: {card.lastEntry.date}
-                        {card.lastEntry.averageTemp !== null && ` - Avg: ${card.lastEntry.averageTemp}°F`}
+                        {card.lastEntry.averageTemp !== null && ` - Avg: ${formatTempF(card.lastEntry.averageTemp, settings.tempUnit ?? 'C')}`}
                       </p>
                     )}
                     {!isSample && !card.lastEntry && (

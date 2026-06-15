@@ -282,7 +282,7 @@ export function SystemAnalysePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicView = location.pathname.startsWith('/view');
-  const { getSystem, businesses } = useCompost();
+  const { getSystem, businesses, settings } = useCompost();
   const hardcoded = systemId ? getSystemById(systemId) : undefined;
   const custom = systemId ? getSystem(systemId) : undefined;
   const system = custom || hardcoded;
@@ -297,7 +297,7 @@ export function SystemAnalysePage() {
   const [composition, setComposition] = useState<CompositionItem[]>([]);
   const [binCount, setBinCount] = useState(0);
   const [compLoading, setCompLoading] = useState(true);
-  const [useCelsius, setUseCelsius] = useState(false);
+  const [useCelsius, setUseCelsius] = useState((settings.tempUnit ?? 'C') === 'C');
   const [showAmbient, setShowAmbient] = useState(false);
   const [showWildlife, setShowWildlife] = useState(false);
   const [chartExpanded, setChartExpanded] = useState(false);
