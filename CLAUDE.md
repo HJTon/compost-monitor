@@ -114,6 +114,10 @@ src/
     config.ts                   ← System definitions, thresholds, helpers
   types/
     index.ts                    ← All TypeScript interfaces
+
+docs/
+  Compost Operations Health and Safety Plan.docx   ← H&S plan for the composting operation
+  build-hs-plan.js              ← Regenerates the H&S plan (needs `npm i docx`)
 ```
 
 ---
@@ -358,6 +362,28 @@ Builds can have their probe count adjusted at any time via the "Probes" panel on
 - Do not commit `.env` files — Google service account credentials are stored in Netlify environment variables only
 - Do not run `netlify link` or `netlify unlink` in either project folder without checking which site it's currently linked to first (`netlify status`)
 - Do not commit the `dist/` folder
+
+---
+
+## Health & Safety
+
+`docs/Compost Operations Health and Safety Plan.docx` is the health & safety plan for the
+composting operation (receiving feedstock, building & turning piles, daily temperature
+monitoring, maturation in enclosed containers, sampling, grow trials). It is aligned with the
+**Health and Safety at Work Act 2015 (HSWA)** and WorkSafe NZ guidance, and covers the
+operation's key hazards — bioaerosols/organic dust (Aspergillus), thermal burns & fire risk
+from hot piles, hazardous gases / confined-space risk in closed maturation vessels, mobile
+plant, pathogens/vermin and manual handling — plus PPE, safe-work procedures, emergency
+procedures, incident/notifiable-event reporting, and sign-off appendices. It ships as a
+working draft with `____` blanks (site, contacts, approver) to complete and review with the
+team. Regenerate it from `docs/build-hs-plan.js`:
+
+```bash
+cd docs && npm i docx && node build-hs-plan.js
+```
+
+It mirrors the Green Loop **collections** H&S plan (in the sibling `green-loop-app/docs/`), so
+the two halves of the operation use the same format.
 
 ---
 
