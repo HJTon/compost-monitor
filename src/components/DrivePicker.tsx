@@ -17,6 +17,10 @@ interface DrivePickerProps {
 
 type Tab = 'pick' | 'upload';
 
+// Files at or under this size go through the base64 function relay; anything
+// larger uploads directly to Drive via a resumable session.
+const RESUMABLE_THRESHOLD = 4 * 1024 * 1024;
+
 export function DrivePicker({ systemName, slotLabel, allowMultiple = true, defaultTag, onClose, onPick }: DrivePickerProps) {
   const [tab, setTab] = useState<Tab>('pick');
   const [files, setFiles] = useState<DriveFile[]>([]);
@@ -105,6 +109,45 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, defau
     }
   }
 
+  // Upload a large file straight to Drive via a resumable session, bypassing
+  // the function body cap. Three steps: mint session → PUT bytes to Drive →
+  // finalize (set public-read perms).
+  async function uploadResumable(file: File): Promise<{ fileId: string; webViewLink?: string }> {
+    const initRes = await fetch('/.netlify/functions/compost-media-upload-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'init',
+        systemName,
+        subfolder: currentSubfolder || undefined,
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+      }),
+    });
+    const init = await initRes.json();
+    if (!init.success) throw new Error(init.error || 'Could not start upload');
+    // A retried upload that already landed — skip straight to the existing file.
+    if (init.existing) return { fileId: init.fileId, webViewLink: init.webViewLink };
+
+    const putRes = await fetch(init.sessionUri, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`);
+    const driveFile = await putRes.json();
+    const fileId = driveFile.id as string;
+    if (!fileId) throw new Error('Drive did not return a file id');
+
+    const finRes = await fetch('/.netlify/functions/compost-media-upload-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'finalize', fileId }),
+    });
+    const fin = await finRes.json();
+    return { fileId, webViewLink: fin.webViewLink };
+  }
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const inputFiles = Array.from(e.target.files || []);
     if (inputFiles.length === 0) return;
@@ -113,10 +156,32 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, defau
     try {
       const uploaded: DriveFile[] = [];
       for (const file of inputFiles) {
+        const isVideo = (file.type || '').startsWith('video/');
+
+        // Big files (videos especially) skip the base64-through-the-function
+        // path — it's capped at ~4 MB by Netlify. Upload them straight to Drive
+        // via a resumable session instead. Check videos by raw size *before*
+        // compressImage so we never base64 a huge file into memory.
+        if (isVideo && file.size > RESUMABLE_THRESHOLD) {
+          const r = await uploadResumable(file);
+          uploaded.push({ id: r.fileId, name: file.name, mimeType: file.type, webViewLink: r.webViewLink });
+          continue;
+        }
+
         const compressed = await compressImage(file);
         if (compressed.compressed) {
           console.log(`Compressed ${file.name}: ${(compressed.originalBytes / 1024 / 1024).toFixed(1)} MB → ${(compressed.finalBytes / 1024 / 1024).toFixed(1)} MB`);
         }
+
+        // An image that's still over the cap after compression (e.g. a massive
+        // HEIC or PNG that didn't compress) also goes via the resumable path,
+        // uploading the original file rather than failing with a 413.
+        if (compressed.finalBytes > RESUMABLE_THRESHOLD) {
+          const r = await uploadResumable(file);
+          uploaded.push({ id: r.fileId, name: file.name, mimeType: file.type, webViewLink: r.webViewLink });
+          continue;
+        }
+
         const res = await fetch('/.netlify/functions/compost-media-upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -295,8 +360,8 @@ export function DrivePicker({ systemName, slotLabel, allowMultiple = true, defau
                 ) : (
                   <>
                     <Upload size={28} className="mx-auto text-gray-400 mb-2" />
-                    <div className="font-medium text-gray-700">Click to upload photos</div>
-                    <div className="text-xs text-gray-400 mt-1">Max 4 MB each · multiple allowed</div>
+                    <div className="font-medium text-gray-700">Click to upload photos or videos</div>
+                    <div className="text-xs text-gray-400 mt-1">Photos auto-compressed · large videos upload directly · multiple allowed</div>
                   </>
                 )}
               </button>
