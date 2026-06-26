@@ -23,6 +23,15 @@ function imageSrc(it: MediaIndexItem, size = 1600): string {
   return bigThumb(it.thumbnailUrl, size) || `https://drive.google.com/thumbnail?id=${it.fileId}&sz=w${size}`;
 }
 
+function isVideo(it: MediaIndexItem): boolean {
+  return (it.mimeType || '').startsWith('video/');
+}
+
+/** Drive's embeddable player — streams/plays the file for anyone-with-link. */
+function videoEmbedSrc(it: MediaIndexItem): string {
+  return `https://drive.google.com/file/d/${it.fileId}/preview`;
+}
+
 /**
  * Ordered list of URLs to try for a given image. Google's
  * `lh3.googleusercontent.com` thumbnails sometimes 403 or return a blank
@@ -99,9 +108,11 @@ export function PhotoGallery({
       <div className="space-y-4 print:space-y-2">
         {items.map(it => {
           const t = parseTransform(it.transform);
+          const video = isVideo(it);
           return (
             <figure key={it.fileId} className="break-inside-avoid">
-              <div className="w-full aspect-[4/3] overflow-hidden rounded-lg">
+              <div className="relative w-full aspect-[4/3] overflow-hidden rounded-lg">
+                {/* A PDF can't play video, so a video prints as its poster frame. */}
                 <img
                   src={imageSrc(it, 1600)}
                   alt={it.caption || ''}
@@ -110,6 +121,9 @@ export function PhotoGallery({
                   style={transformToStyle(t)}
                   referrerPolicy="no-referrer"
                 />
+                {video && (
+                  <div className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wide">Video</div>
+                )}
               </div>
               {it.caption && <figcaption className="text-xs text-gray-600 mt-1">{it.caption}</figcaption>}
             </figure>
@@ -192,32 +206,49 @@ export function PhotoGallery({
           const chain = imageSrcChain(current);
           const step = srcStep[current.fileId] || 0;
           const src = chain[Math.min(step, chain.length - 1)];
+          const video = isVideo(current);
           return (
-            <img
-              key={`${current.fileId}-${step}`}
-              src={src}
-              alt={current.caption || ''}
-              className="w-full h-full cursor-zoom-in"
-              style={transformToStyle(currentTransform)}
-              referrerPolicy="no-referrer"
-              onClick={() => setLightbox(current)}
-              onLoad={(e) => {
-                const el = e.currentTarget;
-                if (el.naturalWidth && el.naturalHeight) {
-                  const ratio = el.naturalWidth / el.naturalHeight;
-                  setAspects(prev => prev[current.fileId] === ratio ? prev : { ...prev, [current.fileId]: ratio });
-                }
-              }}
-              onError={() => {
-                // Walk down the URL chain on failure. Only bump if there's a
-                // next URL to try, otherwise we'd loop forever.
-                setSrcStep(prev => {
-                  const cur = prev[current.fileId] || 0;
-                  if (cur + 1 >= chain.length) return prev;
-                  return { ...prev, [current.fileId]: cur + 1 };
-                });
-              }}
-            />
+            <>
+              <img
+                key={`${current.fileId}-${step}`}
+                src={src}
+                alt={current.caption || ''}
+                className="w-full h-full cursor-zoom-in"
+                style={transformToStyle(currentTransform)}
+                referrerPolicy="no-referrer"
+                onClick={() => setLightbox(current)}
+                onLoad={(e) => {
+                  const el = e.currentTarget;
+                  if (el.naturalWidth && el.naturalHeight) {
+                    const ratio = el.naturalWidth / el.naturalHeight;
+                    setAspects(prev => prev[current.fileId] === ratio ? prev : { ...prev, [current.fileId]: ratio });
+                  }
+                }}
+                onError={() => {
+                  // Walk down the URL chain on failure. Only bump if there's a
+                  // next URL to try, otherwise we'd loop forever.
+                  setSrcStep(prev => {
+                    const cur = prev[current.fileId] || 0;
+                    if (cur + 1 >= chain.length) return prev;
+                    return { ...prev, [current.fileId]: cur + 1 };
+                  });
+                }}
+              />
+              {/* Video: poster frame above, with a play overlay that opens the
+                  Drive player in the lightbox. */}
+              {video && (
+                <button
+                  onClick={() => setLightbox(current)}
+                  className="absolute inset-0 flex items-center justify-center bg-black/10 hover:bg-black/20 transition-colors cursor-pointer"
+                  title="Play video"
+                >
+                  <span className="w-14 h-14 rounded-full bg-black/60 flex items-center justify-center shadow-lg">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
+                  </span>
+                  <span className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide">Video</span>
+                </button>
+              )}
+            </>
           );
         })()}
 
@@ -427,15 +458,26 @@ export function PhotoGallery({
           className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
           onClick={() => setLightbox(null)}
         >
-          <button className="absolute top-4 right-4 text-white p-2" onClick={() => setLightbox(null)}>
+          <button className="absolute top-4 right-4 text-white p-2 z-10" onClick={() => setLightbox(null)}>
             <X size={24} />
           </button>
-          <img
-            src={imageSrc(lightbox, 2400)}
-            alt={lightbox.caption || ''}
-            className="max-w-full max-h-full object-contain"
-            referrerPolicy="no-referrer"
-          />
+          {isVideo(lightbox) ? (
+            <iframe
+              src={videoEmbedSrc(lightbox)}
+              title={lightbox.caption || 'Video'}
+              className="w-[90vw] h-[80vh] max-w-5xl rounded-lg bg-black"
+              allow="autoplay; fullscreen"
+              allowFullScreen
+              onClick={e => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={imageSrc(lightbox, 2400)}
+              alt={lightbox.caption || ''}
+              className="max-w-full max-h-full object-contain"
+              referrerPolicy="no-referrer"
+            />
+          )}
         </div>
       )}
 
