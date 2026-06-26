@@ -4,7 +4,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceDot, Brush,
 } from 'recharts';
-import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer } from 'lucide-react';
+import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer, Image as ImageIcon } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { InlinePhotoSlot } from '@/components/InlinePhotoSlot';
 import { BuildDescription } from '@/components/BuildDescription';
@@ -312,6 +312,8 @@ export function SystemAnalysePage() {
 
   // Photo timeline — photos with eventDate → render as camera pins on chart
   const [photoTimeline, setPhotoTimeline] = useState<MediaIndexItem[]>([]);
+  // Drive folder holding this build's original photos (link target for "View originals")
+  const [driveFolderId, setDriveFolderId] = useState<string | null>(null);
   const [showPhotos, setShowPhotos] = useState(true);
   const [hoveredPhoto, setHoveredPhoto] = useState<{ date: string; items: MediaIndexItem[]; x: number; y: number } | null>(null);
 
@@ -385,6 +387,7 @@ export function SystemAnalysePage() {
   useEffect(() => {
     if (!system?.name) return;
     setPhotoTimeline([]); // reset stale state when switching systems
+    setDriveFolderId(null);
 
     type DriveFile = {
       id: string; name: string; mimeType: string;
@@ -396,10 +399,12 @@ export function SystemAnalysePage() {
       fetchJsonWithRetry<{ items?: MediaIndexItem[] }>(
         `/.netlify/functions/compost-media-index?system=${encodeURIComponent(system.name)}`
       ).catch(err => { console.warn('[Analyse] media index failed:', err); return { items: [] }; }),
-      fetchJsonWithRetry<{ files?: DriveFile[] }>(
+      fetchJsonWithRetry<{ files?: DriveFile[]; buildFolderId?: string }>(
         `/.netlify/functions/compost-media-list?systemName=${encodeURIComponent(system.name)}`
-      ).catch(err => { console.warn('[Analyse] media list failed:', err); return { files: [] }; }),
+      ).catch(err => { console.warn('[Analyse] media list failed:', err); return { files: [], buildFolderId: undefined }; }),
     ]).then(([indexData, listData]) => {
+      // Capture the build's Drive folder so we can link straight to the originals.
+      if (listData.buildFolderId) setDriveFolderId(listData.buildFolderId);
       // Build fileId → DriveFile lookup so we can pull EXIF `takenTime`
       // regardless of whether the photo is sheet-indexed or Drive-only.
       const driveByFileId: Record<string, DriveFile> = {};
@@ -709,9 +714,20 @@ export function SystemAnalysePage() {
           </div>
         )}
 
-        {/* Print button */}
+        {/* Print + view-originals links */}
         {!isPublicView && (
-          <div className="flex justify-end">
+          <div className="flex justify-end items-center gap-1">
+            {driveFolderId && (
+              <a
+                href={`https://drive.google.com/drive/folders/${driveFolderId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-primary px-2 py-1 rounded"
+                title="Open this build's photo folder in Google Drive"
+              >
+                <ImageIcon size={14} /> View original photos
+              </a>
+            )}
             <button
               onClick={() => window.open(`/analyse/${systemId}/print`, '_blank')}
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-green-primary px-2 py-1 rounded"
