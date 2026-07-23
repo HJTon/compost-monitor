@@ -193,7 +193,12 @@ The Settings page is opened from the **landing page** (gear icon top-right), not
 
 Per-build metadata that isn't part of the daily readings lives in a single `Build Info` sheet tab and is synced bidirectionally on app open.
 
-Columns: `System | Notes | Summary | BuildType | MulchBins | MulchType | Dimensions (JSON) | ProbeLabels (JSON) | UpdatedAt`
+Columns: `System | Notes | Summary | BuildType | MulchBins | MulchType | Dimensions (JSON) | ProbeLabels (JSON) | UpdatedAt | BuildDate | Rating`
+
+> `ensureTabAndHeaders` only ever **extends** the header row, never reorders it — new columns must be appended at the end.
+
+- **BuildDate** (YYYY-MM-DD) is the canonical "date this pile was built", editable from the Build date panel on the build's Manage page. Saving it also rewrites "Date of Batching" (Bin Tracker col J, `DD-MMM-YYYY`) for every bin in that build via `compost-build-date.ts`. Pages that show a start date prefer it and fall back to the first reading's date, marked with a `~`.
+- **Rating** is a manual 1–5 performance rating, set by tapping the stars in the Build vitals strip.
 
 - **Function:** `netlify/functions/compost-build-info.ts` — GET (all rows or single system), POST (merge-patch: undefined fields leave existing values alone)
 - **Write path:** `updateCustomSystem()` in `CompostContext` writes to IndexedDB and fires a POST with all editable fields. Notes/Summary go through `BuildDescription` the same way.
@@ -302,6 +307,29 @@ Four directions worth exploring:
 4. **Recipe correlation** — bin composition (% food, % coffee, % cardboard, etc.) as input, peak temperature / kill days achieved as output. Scatter or small-multiple charts.
 
 Implementation approach when ready: add an `/analyse` index page with filter chips (type, season, mulch load), render a small-multiple grid of sparkline temperature curves, and link through to the existing per-build page for detail. Volume/kill-days aggregations can live in a new Netlify function that reads multiple sheet tabs server-side and returns a normalised dataset.
+
+---
+
+## Growth trials
+
+A build in the `grow` phase runs trials, stored as JSON in the **Build Phases** tab's
+`GrowJSON` column (`GrowInfo { startedAt, trials[] }`) — extending `GrowTrial` needs no
+sheet migration. Written only via `setSystemPhase(id, phase, { grow })`.
+
+Three protocol stages (`TRIAL_TYPES` in `src/utils/trials.ts`): a 5-day **germination test**
+(phytotoxicity check), a 21-day **broad bean growth test**, then open-ended **crop trials**.
+Ideally the first two run before real crop trials, but nothing enforces it — `PhaseModal`
+shows a tip, never a block.
+
+- Every new field on `GrowTrial` is optional. Legacy trials have only
+  `{id, method, crop, notes?, createdAt}` and must keep rendering — `trialTypeOf` treats
+  them as `'crop'` and `trialStart` falls back to `createdAt`. Don't make any of them required.
+- `TrialCard` is the view/edit surface, used on both Manage and Analyse. It spreads the
+  stored trial into its save payload so unknown fields survive a round-trip.
+- Per-trial photos reuse the Media tab with `Slot = trial-<trialId>` and tag `trial` — the
+  slot column is free text, so no backend change was needed.
+- `ComparePage` renders a trials grid (one row per build, columns by stage) below the
+  readiness comparison, entirely from `allSystems` — no extra fetches.
 
 ---
 
