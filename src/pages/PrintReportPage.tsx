@@ -1,11 +1,21 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getSystemById, formatTempF } from '@/utils/config';
 import { useCompost } from '@/contexts/CompostContext';
 import { PHOTO_SLOTS, type MediaIndexItem } from '@/utils/photoSlots';
 import { PhotoGallery } from '@/components/PhotoGallery';
 import { formatNiceDate, daysBetween } from '@/components/BuildVitals';
-import { sortTrials, trialStart, trialStatus, trialTypeDef, trialTypeOf } from '@/utils/trials';
+import {
+  PASS_THRESHOLD_PCT,
+  percentOfControl,
+  protocolVerdict,
+  sortTrials,
+  trialStart,
+  trialStatus,
+  trialTypeDef,
+  trialTypeOf,
+} from '@/utils/trials';
+import { displayValue, fieldsFor, observationLabel } from '@/utils/trialFields';
 import { getNZDate } from '@/utils/config';
 import type { ReadinessCheck } from '@/types';
 
@@ -30,7 +40,7 @@ function displayDateToIso(s: string): string {
 
 export function PrintReportPage() {
   const { systemId } = useParams<{ systemId: string }>();
-  const { getSystem, settings } = useCompost();
+  const { getSystem, settings, getTrialRun } = useCompost();
   const tempUnit = settings.tempUnit ?? 'C';
   const system = (systemId && (getSystem(systemId) || getSystemById(systemId))) || null;
 
@@ -193,18 +203,66 @@ export function PrintReportPage() {
               {sortTrials(trials).map(t => {
                 const start = trialStart(t);
                 const status = trialStatus(t);
+                // The run supplies the control the pass rule compares against,
+                // and the seeds-sown denominator behind the strike rate.
+                const run = t.runId ? getTrialRun(t.runId) : undefined;
+                const fields = fieldsFor(trialTypeOf(t));
+                const ctx = { replicates: t.replicates ?? null, seedsSown: run?.seedsSown ?? null };
+                const measured = fields.filter(
+                  f => f.derived || (t.measurements && t.measurements[f.id] !== undefined && t.measurements[f.id] !== null && t.measurements[f.id] !== '')
+                );
+                const pct = percentOfControl(t, run);
+                const verdict = protocolVerdict(t, run);
+                const observations = t.observations ?? [];
+                const hasDetail = measured.length > 0 || observations.length > 0
+                  || t.replicates != null || t.phAtStart != null;
+
                 return (
-                  <tr key={t.id} className="border-t align-top break-inside-avoid">
-                    <td className="py-1.5 pr-3">{trialTypeDef(trialTypeOf(t)).label}</td>
-                    <td className="py-1.5 pr-3">{t.crop || '—'}</td>
-                    <td className="py-1.5 pr-3">{t.method || '—'}</td>
-                    <td className="py-1.5 pr-3 whitespace-nowrap">
-                      {formatNiceDate(start) || start || '—'}
-                      {t.endedAt ? ` → ${formatNiceDate(t.endedAt) || t.endedAt}` : ''}
-                    </td>
-                    <td className="py-1.5 pr-3 whitespace-nowrap">{status.label}</td>
-                    <td className="py-1.5">{t.result || t.notes || '—'}</td>
-                  </tr>
+                  <Fragment key={t.id}>
+                    <tr className="border-t align-top break-inside-avoid">
+                      <td className="py-1.5 pr-3">{trialTypeDef(trialTypeOf(t)).label}</td>
+                      <td className="py-1.5 pr-3">{t.crop || '—'}</td>
+                      <td className="py-1.5 pr-3">{t.method || '—'}</td>
+                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                        {formatNiceDate(start) || start || '—'}
+                        {t.endedAt ? ` → ${formatNiceDate(t.endedAt) || t.endedAt}` : ''}
+                      </td>
+                      <td className="py-1.5 pr-3 whitespace-nowrap">{status.label}</td>
+                      <td className="py-1.5">{t.result || t.notes || '—'}</td>
+                    </tr>
+                    {hasDetail && (
+                      <tr className="align-top break-inside-avoid">
+                        <td colSpan={6} className="pb-2 pl-3 text-xs text-gray-600">
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                            {t.replicates != null && (
+                              <span><span className="text-gray-400">Pots:</span> {t.replicates}</span>
+                            )}
+                            {t.phAtStart != null && (
+                              <span><span className="text-gray-400">pH at start:</span> {t.phAtStart}</span>
+                            )}
+                            {measured.map(f => (
+                              <span key={f.id}>
+                                <span className="text-gray-400">{f.label}:</span>{' '}
+                                {displayValue(f, t.measurements, ctx)}
+                              </span>
+                            ))}
+                            {verdict && (
+                              <span className="font-semibold">
+                                {verdict === 'pass' ? 'PASS' : 'CHECK'}
+                                {pct !== null ? ` — ${pct}% of control (pass at ${PASS_THRESHOLD_PCT}%)` : ''}
+                              </span>
+                            )}
+                          </div>
+                          {observations.length > 0 && (
+                            <div className="mt-0.5">
+                              <span className="text-gray-400">Visual observations:</span>{' '}
+                              {observations.map(observationLabel).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>

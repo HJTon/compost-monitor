@@ -10,9 +10,19 @@ import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
 import { KILL_TEMP_F, fToC, formatTempF } from '@/utils/config';
-import { TRIAL_TYPES, sortTrials, trialStart, trialStatus, trialsOfType } from '@/utils/trials';
+import {
+  TRIAL_TYPES,
+  VERDICT_BADGE,
+  percentOfControl,
+  protocolVerdict,
+  sortTrials,
+  trialStart,
+  trialStatus,
+  trialStrikeRate,
+  trialsOfType,
+} from '@/utils/trials';
 import { formatNiceDate } from '@/components/BuildVitals';
-import type { CompostSystem, ReadinessCheck, GrowTrial } from '@/types';
+import type { CompostSystem, ReadinessCheck, GrowTrial, TrialRun } from '@/types';
 
 // ── Fixed high-contrast palette for comparison lines ─────────────────────────
 const LINE_COLOURS = [
@@ -116,13 +126,66 @@ function toDaySeries(entries: SheetEntry[]): { day: number; avg: number | null; 
   return result;
 }
 
+/**
+ * One trial in the comparison grid. The protocol's measured numbers — strike
+ * rate, % of control, vigour — say far more here than a truncated sentence, so
+ * the free text only appears when nothing was measured.
+ */
+function TrialCellEntry({ trial, run }: { trial: GrowTrial; run: TrialRun | undefined }) {
+  const status = trialStatus(trial);
+  const start = trialStart(trial);
+  const rate = trialStrikeRate(trial, run);
+  const pct = percentOfControl(trial, run);
+  const verdict = protocolVerdict(trial, run);
+  const rawVigour = trial.measurements?.overallVigour;
+  const vigour = typeof rawVigour === 'string' && rawVigour ? rawVigour : null;
+  const hasMetrics = rate !== null || pct !== null || vigour !== null;
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-gray-700 font-medium">{trial.crop || '—'}</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${status.chipClass}`}>
+          {status.state === 'complete' ? 'complete' : status.shortLabel}
+        </span>
+        {verdict && (
+          <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border ${VERDICT_BADGE[verdict]}`}>
+            {verdict === 'pass' ? 'Pass' : 'Check'}
+          </span>
+        )}
+      </div>
+      <div className="text-[10px] text-gray-400">
+        {formatNiceDate(start) || start || '—'}
+        {trial.endedAt ? ` → ${formatNiceDate(trial.endedAt) || trial.endedAt}` : ''}
+      </div>
+      {hasMetrics && (
+        <div className="text-[10px] text-gray-600 space-y-0.5">
+          {rate !== null && (
+            <div>
+              Strike <span className="font-medium text-gray-800">{rate}%</span>
+              {pct !== null && <span className="text-gray-400"> · {pct}% of control</span>}
+            </div>
+          )}
+          {rate === null && pct !== null && <div>{pct}% of control</div>}
+          {vigour && <div>Vigour: <span className="font-medium text-gray-800">{vigour}</span></div>}
+        </div>
+      )}
+      {!hasMetrics && trial.result && (
+        <div className="text-[10px] text-gray-500 truncate max-w-[160px]" title={trial.result}>
+          {trial.result}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function ComparePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicView = location.pathname.startsWith('/view');
-  const { allSystems, settings } = useCompost();
+  const { allSystems, settings, getTrialRun } = useCompost();
   const tempUnit = settings.tempUnit ?? 'C';
 
   // All systems (active first, then retired)
@@ -956,29 +1019,13 @@ export function ComparePage() {
                             <span className="text-gray-300">—</span>
                           ) : (
                             <div className="space-y-1.5">
-                              {cell.trials.map((t: GrowTrial) => {
-                                const status = trialStatus(t);
-                                const start = trialStart(t);
-                                return (
-                                  <div key={t.id} className="space-y-0.5">
-                                    <div className="flex flex-wrap items-center gap-1">
-                                      <span className="text-gray-700 font-medium">{t.crop || '—'}</span>
-                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${status.chipClass}`}>
-                                        {status.state === 'complete' ? 'complete' : status.shortLabel}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] text-gray-400">
-                                      {formatNiceDate(start) || start || '—'}
-                                      {t.endedAt ? ` → ${formatNiceDate(t.endedAt) || t.endedAt}` : ''}
-                                    </div>
-                                    {t.result && (
-                                      <div className="text-[10px] text-gray-500 truncate max-w-[160px]" title={t.result}>
-                                        {t.result}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                              {cell.trials.map((t: GrowTrial) => (
+                                <TrialCellEntry
+                                  key={t.id}
+                                  trial={t}
+                                  run={t.runId ? getTrialRun(t.runId) : undefined}
+                                />
+                              ))}
                             </div>
                           )}
                         </td>

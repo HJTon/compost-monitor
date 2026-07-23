@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
-import type { DailyEntry, AppSettings, CompostSystem, BusinessInfo, BuildPhase, MaturationInfo, GrowInfo } from '@/types';
+import type { DailyEntry, AppSettings, CompostSystem, BusinessInfo, BuildPhase, MaturationInfo, GrowInfo, TrialRun } from '@/types';
 import type { ToastMessage as ToastMsg } from '@/components/Toast';
 import {
   getAllEntries,
@@ -80,6 +80,11 @@ interface CompostContextType {
   addTrialMethod: (name: string) => Promise<void>;
   addTrialCrop: (name: string) => Promise<void>;
 
+  // Trial runs (shared/global protocol experiments — Trial Runs sheet tab)
+  trialRuns: TrialRun[];
+  saveTrialRun: (run: TrialRun) => Promise<void>;
+  getTrialRun: (runId: string) => TrialRun | undefined;
+
   // Refresh
   refreshEntries: () => Promise<void>;
 }
@@ -103,6 +108,22 @@ function mergeUnique(base: string[], extra: string[]): string[] {
   return out;
 }
 
+/**
+ * Replace the FIRST run with this id, or append when it's new.
+ *
+ * First-wins deliberately: compost-trial-runs.ts POSTs into the first sheet row
+ * whose RunId matches, so every client-side lookup has to resolve to that same
+ * row. See "Shared-tab gotcha" in CLAUDE.md — the equivalent Build Info lookup
+ * was silently reading back a different row than the one it wrote.
+ */
+function upsertRun(list: TrialRun[], run: TrialRun): TrialRun[] {
+  const idx = list.findIndex(r => r.runId === run.runId);
+  if (idx === -1) return [...list, run];
+  const next = [...list];
+  next[idx] = run;
+  return next;
+}
+
 export function CompostProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -115,6 +136,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
   const [buildTypes, setBuildTypes] = useState<string[]>(DEFAULT_BUILD_TYPES);
   const [trialMethods, setTrialMethods] = useState<string[]>(DEFAULT_TRIAL_METHODS);
   const [trialCrops, setTrialCrops] = useState<string[]>(DEFAULT_TRIAL_CROPS);
+  const [trialRuns, setTrialRuns] = useState<TrialRun[]>([]);
 
   // Merge hardcoded + custom so fields saved via Manage (buildType, dimensions,
   // mulchBins, etc.) augment the hardcoded 11 systems. Custom entries with IDs
@@ -625,6 +647,53 @@ export function CompostProvider({ children }: { children: ReactNode }) {
   const addTrialMethod = useCallback((name: string) => addTrialOption('method', name), [addTrialOption]);
   const addTrialCrop = useCallback((name: string) => addTrialOption('crop', name), [addTrialOption]);
 
+  // ── Trial runs ─────────────────────────────────────────────────────────────
+  //
+  // Runs are shared/global protocol experiments (one start date, one set of
+  // controls, many piles), stored in the `Trial Runs` sheet tab. They are NOT
+  // per-build, so they deliberately don't go into IndexedDB custom systems —
+  // offline devices simply see an empty list until they reconnect.
+
+  // Fetch shared trial runs on mount (online only; empty list is a fine fallback)
+  useEffect(() => {
+    if (!navigator.onLine) return;
+    let cancelled = false;
+    fetch('/.netlify/functions/compost-trial-runs')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled) return;
+        if (Array.isArray(data?.runs)) setTrialRuns(data.runs as TrialRun[]);
+      })
+      .catch(() => { /* offline / function unavailable — no runs */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Save a run: optimistic local update, POST to the shared sheet, then adopt
+   * the server's merged copy (it owns `updatedAt` and normalises the controls).
+   */
+  const saveTrialRun = useCallback(async (run: TrialRun) => {
+    setTrialRuns(prev => upsertRun(prev, run));
+    try {
+      const res = await fetch('/.netlify/functions/compost-trial-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(run),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data?.run) setTrialRuns(prev => upsertRun(prev, data.run as TrialRun));
+    } catch (err) {
+      console.warn('Could not save trial run to sheet:', err);
+      addToast('error', 'Could not save the trial run — check your connection and try again');
+    }
+  }, [addToast]);
+
+  /** First run with this id (first-wins, see `upsertRun`). */
+  const getTrialRun = useCallback((runId: string): TrialRun | undefined => {
+    return trialRuns.find(r => r.runId === runId);
+  }, [trialRuns]);
+
   // Auto-sync when coming online
   useEffect(() => {
     if (isOnline && pendingCount > 0) {
@@ -834,7 +903,11 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         system: current.name,
         sheetTab: current.sheetTab,
         phase,
-        maturation: updated.maturation,
+        // The sheet treats an omitted field as "leave alone", so only send an
+        // explicit null where clearing is actually intended. Sending undefined
+        // when we simply don't have the data yet (phases sync still in flight)
+        // would otherwise wipe the richer record already stored.
+        maturation: phase === 'thermophilic' ? null : updated.maturation,
         grow: updated.grow,
         transitionNote: patch?.transitionNote || '',
       }),
@@ -966,6 +1039,9 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         trialCrops,
         addTrialMethod,
         addTrialCrop,
+        trialRuns,
+        saveTrialRun,
+        getTrialRun,
         refreshEntries,
       }}
     >

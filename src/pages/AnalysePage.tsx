@@ -197,6 +197,23 @@ export function AnalysePage() {
         {/* Protocol progress for every build — germination / broad bean / crop trials */}
         <TrialProtocolOverview systems={activeSystems} />
 
+        {/* The per-run result tables — one experiment across many piles */}
+        <button
+          onClick={() => navigate('/trials')}
+          className="w-full bg-white rounded-xl p-4 shadow-sm border border-purple-100 text-left active:scale-[0.98] transition-transform flex items-center gap-4"
+        >
+          <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
+            <FlaskConical size={20} className="text-purple-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-gray-900">Trial runs</div>
+            <div className="text-xs text-gray-400 mt-0.5">
+              Result tables for each germination / broad bean run, with controls
+            </div>
+          </div>
+          <ChevronRight size={18} className="text-gray-300 shrink-0" />
+        </button>
+
         <p className="text-sm text-gray-500 mb-1 pt-2">
           Or select a system to view its individual analysis.
         </p>

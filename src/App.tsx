@@ -19,6 +19,8 @@ import { TypeVsTypePage } from '@/pages/TypeVsTypePage';
 import { SeasonalPage } from '@/pages/SeasonalPage';
 import { SystemAnalysePage } from '@/pages/SystemAnalysePage';
 import { ComparePage } from '@/pages/ComparePage';
+import { TrialRunsPage } from '@/pages/TrialRunsPage';
+import { TrialRunPage } from '@/pages/TrialRunPage';
 import { PublicViewPage } from '@/pages/PublicViewPage';
 import { SampleEntryPage } from '@/pages/SampleEntryPage';
 import { PrintReportPage } from '@/pages/PrintReportPage';
@@ -57,6 +59,9 @@ function AppRoutes() {
               <Route path="/analyse/:systemId" element={<SystemAnalysePage />} />
               <Route path="/analyse/:systemId/print" element={<PrintReportPage />} />
               <Route path="/compare" element={<ComparePage />} />
+              {/* Literal route must come before the :runId param route */}
+              <Route path="/trials" element={<TrialRunsPage />} />
+              <Route path="/trials/:runId" element={<TrialRunPage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </PasswordGate>

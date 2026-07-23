@@ -1,5 +1,6 @@
-import type { GrowTrial, TrialType } from '@/types';
+import type { GrowTrial, TrialType, TrialRun, TrialControl } from '@/types';
 import { getNZDate } from './config';
+import { computeField, STRIKE_RATE_FIELD } from './trialFields';
 
 // ── Protocol stages ──────────────────────────────────────────────────────────
 //
@@ -170,3 +171,96 @@ export function hasCompletedGermination(trials: GrowTrial[]): boolean {
 export function sortTrials(trials: GrowTrial[]): GrowTrial[] {
   return [...trials].sort((a, b) => trialStart(b).localeCompare(trialStart(a)));
 }
+
+// ── Pass rule (relative to the run's control) ────────────────────────────────
+//
+// Stage 1 of the protocol passes a compost when its germination reaches 90% of
+// the control's. The control is not a build — it lives on the `TrialRun` — so
+// every function here needs the run, and returns null without it. A missing
+// control means "no verdict", never "fail".
+
+/** Stage-1 rule: germination at or above 90% of the control passes. */
+export const PASS_THRESHOLD_PCT = 90;
+
+/** Strike rate % from a measurement set, derived — never read from storage. */
+function strikeRateOf(
+  measurements: GrowTrial['measurements'],
+  replicates: number | null,
+  runSeedsSown: number | null,
+): number | null {
+  return computeField(STRIKE_RATE_FIELD, measurements, {
+    replicates,
+    seedsSown: runSeedsSown,
+  });
+}
+
+/** Strike rate % for one pile's trial, or null when it hasn't been recorded. */
+export function trialStrikeRate(trial: GrowTrial, run?: TrialRun | null): number | null {
+  return strikeRateOf(trial.measurements, trial.replicates ?? null, run?.seedsSown ?? null);
+}
+
+/**
+ * Strike rate % for a single control row, or null when it has none.
+ *
+ * A germination control needs `seedsGerminated` (its `seedsSown` falls back to
+ * the run's). A growth-test control needs `germinatedOfReplicates` plus a
+ * `replicates` measurement — controls aren't trials, so there is no
+ * `GrowTrial.replicates` to borrow.
+ */
+export function controlStrikeRate(control: TrialControl, run?: TrialRun | null): number | null {
+  return strikeRateOf(control.measurements, null, run?.seedsSown ?? null);
+}
+
+/**
+ * The run's baseline strike rate: the MEAN of every control that has a usable
+ * one. A run commonly carries several controls (seed raising mix, garden
+ * compost, zone 2 soil); the protocol compares against "the control", so
+ * averaging them keeps one duff control row from swinging every verdict.
+ *
+ * Null when the run has no controls, or no control has a usable strike rate.
+ */
+export function runControlStrikeRate(run: TrialRun | null | undefined): number | null {
+  if (!run || run.controls.length === 0) return null;
+  const rates = run.controls
+    .map(c => controlStrikeRate(c, run))
+    .filter((r): r is number => r !== null);
+  if (rates.length === 0) return null;
+  const mean = rates.reduce((sum, r) => sum + r, 0) / rates.length;
+  return Math.round(mean * 10) / 10;
+}
+
+/**
+ * This trial's strike rate as a percentage of the run's control, to one decimal
+ * place. Null when there is no run, no control, no usable control strike rate,
+ * the control rate is 0, or the trial has no strike rate of its own.
+ */
+export function percentOfControl(
+  trial: GrowTrial,
+  run: TrialRun | null | undefined,
+): number | null {
+  const control = runControlStrikeRate(run);
+  if (control === null || control === 0) return null;
+  const mine = trialStrikeRate(trial, run);
+  if (mine === null) return null;
+  return Math.round((mine / control) * 1000) / 10;
+}
+
+/**
+ * PASS at or above 90% of the control, CHECK below it. Null whenever
+ * `percentOfControl` is null — a verdict is never invented from a missing
+ * control, so callers should render no badge at all in that case.
+ */
+export function protocolVerdict(
+  trial: GrowTrial,
+  run: TrialRun | null | undefined,
+): 'pass' | 'check' | null {
+  const pct = percentOfControl(trial, run);
+  if (pct === null) return null;
+  return pct >= PASS_THRESHOLD_PCT ? 'pass' : 'check';
+}
+
+/** Badge colours for the pass/check verdict. */
+export const VERDICT_BADGE: Record<'pass' | 'check', string> = {
+  pass:  'bg-green-100 text-green-700 border-green-200',
+  check: 'bg-amber-100 text-amber-700 border-amber-200',
+};

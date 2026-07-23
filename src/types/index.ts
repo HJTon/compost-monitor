@@ -47,6 +47,53 @@ export interface GrowTrial {
   endedAt?: string;
   /** Outcome summary, e.g. "18/20 germinated, no leaf distortion" */
   result?: string;
+  /** The protocol run this trial belongs to; standalone trials have none. */
+  runId?: string;
+  /** Pots per compost. Protocol default 3. */
+  replicates?: number;
+  /** pH of the compost at trial start ("Growth Pre testing"). */
+  phAtStart?: number | null;
+  /** Measured values, keyed by field id from TRIAL_FIELDS. */
+  measurements?: Record<string, number | string | boolean | null>;
+  /** Visual observation ids that applied, e.g. ['chlorosis', 'wilting']. */
+  observations?: string[];
+}
+
+/** Measured values keyed by field id from `TRIAL_FIELDS` (src/utils/trialFields.ts). */
+export type TrialMeasurements = Record<string, number | string | boolean | null>;
+
+/**
+ * A control in a trial run — seed raising mix, garden compost, zone 2 soil.
+ * Controls are not builds, so they live on the run rather than on a system.
+ */
+export interface TrialControl {
+  /** Stable id within the run, e.g. 'seed-raising-mix' */
+  id: string;
+  /** Display label, e.g. 'Seed raising mix' */
+  label: string;
+  /** Measured values, keyed by field id from TRIAL_FIELDS — same shape as a trial's */
+  measurements: TrialMeasurements;
+}
+
+/**
+ * One protocol experiment: a shared start date, duration and set of controls
+ * that many per-pile `GrowTrial`s belong to (via `GrowTrial.runId`).
+ * Stored in the shared `Trial Runs` sheet tab — global, not per-build.
+ */
+export interface TrialRun {
+  /** Stable id, generated client-side; the sheet's row key */
+  runId: string;
+  type: TrialType;
+  /** YYYY-MM-DD */
+  startDate: string;
+  /** Planned duration in days — null means open-ended */
+  plannedDays: number | null;
+  /** Seeds sown per pot (protocol: 25 for germination, 1 for broad bean) */
+  seedsSown: number | null;
+  controls: TrialControl[];
+  notes: string;
+  /** ISO timestamp of the last write */
+  updatedAt: string;
 }
 
 export interface GrowInfo {

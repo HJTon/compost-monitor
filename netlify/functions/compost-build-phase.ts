@@ -118,8 +118,13 @@ export default async (request: Request, _context: Context) => {
       const system = body.system as string;
       const phase = (body.phase as string) || 'thermophilic';
       const sheetTab = (body.sheetTab as string) || '';
-      const maturation = body.maturation ?? null;
-      const grow = body.grow ?? null;
+      // Merge-patch, NOT overwrite. A caller that only knows about one of these
+      // (joining a trial run, editing a phase date) must not blank the other —
+      // and a client whose local copy hasn't finished syncing must not be able
+      // to wipe the richer record already in the sheet. `undefined` leaves the
+      // stored value alone; an explicit `null` clears it.
+      const maturationPatch = body.maturation;
+      const growPatch = body.grow;
       const transitionNote = (body.transitionNote as string) || '';
 
       if (!system) {
@@ -135,6 +140,13 @@ export default async (request: Request, _context: Context) => {
       for (let i = 1; i < values.length; i++) {
         if (values[i][0] === system) { foundIndex = i; break; }
       }
+
+      const existingRow = foundIndex >= 0 ? values[foundIndex] : [];
+      const existingMaturation = parseJSON<unknown>(existingRow[2] || '');
+      const existingGrow = parseJSON<unknown>(existingRow[3] || '');
+
+      const maturation = maturationPatch === undefined ? existingMaturation : maturationPatch;
+      const grow = growPatch === undefined ? existingGrow : growPatch;
 
       const updatedAt = new Date().toISOString();
       const row = [
