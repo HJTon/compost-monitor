@@ -4,19 +4,27 @@ import { getSystemById, formatTempF } from '@/utils/config';
 import { useCompost } from '@/contexts/CompostContext';
 import { PHOTO_SLOTS, type MediaIndexItem } from '@/utils/photoSlots';
 import { PhotoGallery } from '@/components/PhotoGallery';
+import { formatNiceDate, daysBetween } from '@/components/BuildVitals';
+import { getNZDate } from '@/utils/config';
+import type { ReadinessCheck } from '@/types';
 
 interface SummaryData {
-  startDate: string | null;
+  /** YYYY-MM-DD — canonical build date, or the first reading's date */
+  startIso: string | null;
+  /** True when startIso came from the first reading rather than system.buildDate */
+  startApprox: boolean;
   dayCount: number;
   readingCount: number;
   peakTemp: number | null;
   avgPeak: number | null;
 }
 
-/** YYYY-MM-DD → DD/MM/YYYY, to match the sheet's entry-date display format */
-function isoToDisplayDate(iso: string): string {
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+/** DD/MM/YYYY (sheet format) → YYYY-MM-DD. Returns '' if unparseable. */
+function displayDateToIso(s: string): string {
+  const dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dm) return `${dm[3]}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return iso ? iso[0] : '';
 }
 
 export function PrintReportPage() {
@@ -27,6 +35,7 @@ export function PrintReportPage() {
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaIndexItem[]>([]);
+  const [latestFbRatio, setLatestFbRatio] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -34,9 +43,10 @@ export function PrintReportPage() {
 
     async function load() {
       if (!system) return;
-      const [historyRes, mediaRes] = await Promise.all([
+      const [historyRes, mediaRes, readinessRes] = await Promise.all([
         fetch(`/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`).then(r => r.ok ? r.json() : { entries: [] }).catch(() => ({ entries: [] })),
         fetch(`/.netlify/functions/compost-media-index?system=${encodeURIComponent(system.name)}`).then(r => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] })),
+        fetch(`/.netlify/functions/compost-readiness-read?system=${encodeURIComponent(system.id)}`).then(r => r.ok ? r.json() : { checks: [] }).catch(() => ({ checks: [] })),
       ]);
 
       const entries = historyRes.entries || [];
@@ -45,13 +55,19 @@ export function PrintReportPage() {
         const peaks: number[] = entries.map((e: { peak?: number | null }) => e.peak).filter((v: number | null | undefined): v is number => typeof v === 'number');
         setSummary({
           // Canonical build date wins; fall back to the first reading's date
-          startDate: system.buildDate ? isoToDisplayDate(system.buildDate) : first.date,
+          startIso: system.buildDate || displayDateToIso(first.date) || null,
+          startApprox: !system.buildDate,
           dayCount: entries.length,
           readingCount: entries.length,
           peakTemp: peaks.length > 0 ? Math.max(...peaks) : null,
           avgPeak: peaks.length > 0 ? Math.round(peaks.reduce((a, b) => a + b, 0) / peaks.length) : null,
         });
       }
+
+      const checks: ReadinessCheck[] = (readinessRes.checks || [])
+        .slice()
+        .sort((a: ReadinessCheck, b: ReadinessCheck) => a.date.localeCompare(b.date));
+      setLatestFbRatio(checks.length > 0 ? (checks[checks.length - 1].results?.fbRatio ?? null) : null);
 
       setMediaItems(mediaRes.items || []);
       setReady(true);
@@ -74,6 +90,16 @@ export function PrintReportPage() {
 
   const today = new Date().toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 
+  // Build vitals (static — no star tapping in print)
+  const startIso = summary?.startIso || '';
+  const age = startIso ? daysBetween(startIso, getNZDate()) : null;
+  const maturationStart = system.maturation?.startedAt || '';
+  const daysToMaturation = startIso && maturationStart
+    ? daysBetween(startIso, maturationStart)
+    : null;
+  const cropList = (system.grow?.trials ?? []).map(t => t.crop).filter(Boolean).join(', ');
+  const rating = system.performanceRating ?? 0;
+
   return (
     <div className="max-w-4xl mx-auto p-8 print:p-0 bg-white text-gray-900 print:text-black">
       <style>{`
@@ -92,13 +118,45 @@ export function PrintReportPage() {
         <div className="text-sm text-gray-600 mt-1">Generated {today}</div>
       </header>
 
-      {/* Summary */}
+      {/* Build vitals — static print version of the Analyse page strip */}
       {summary && (
-        <section className="mb-6 grid grid-cols-3 gap-4 break-inside-avoid">
-          {summary.startDate && (
+        <section className="mb-6 flex flex-wrap gap-x-8 gap-y-3 break-inside-avoid">
+          {summary.startIso && (
             <div>
-              <div className="text-xs text-gray-500 uppercase tracking-wide">Start date</div>
-              <div className="font-semibold">{summary.startDate}</div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide">Built</div>
+              <div className="font-semibold">
+                {summary.startApprox ? '~' : ''}{formatNiceDate(summary.startIso) || summary.startIso}
+              </div>
+            </div>
+          )}
+          {age !== null && (
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide">Age</div>
+              <div className="font-semibold">{age} days</div>
+            </div>
+          )}
+          <div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Maturation</div>
+            <div className="font-semibold">
+              {daysToMaturation !== null
+                ? `${daysToMaturation} days`
+                : (maturationStart ? formatNiceDate(maturationStart) || maturationStart : '—')}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Growing</div>
+            <div className="font-semibold">{cropList || '—'}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Rating</div>
+            <div className="font-semibold">
+              {rating > 0 ? `${'★'.repeat(rating)}${'☆'.repeat(5 - rating)}` : '—'}
+            </div>
+          </div>
+          {latestFbRatio != null && (
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide">F:B ratio</div>
+              <div className="font-semibold">{latestFbRatio}</div>
             </div>
           )}
           <div>

@@ -107,6 +107,8 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         phase: c.phase ?? s.phase,
         maturation: c.maturation ?? s.maturation,
         grow: c.grow ?? s.grow,
+        buildDate: c.buildDate ?? s.buildDate,
+        performanceRating: c.performanceRating ?? s.performanceRating,
       };
     });
     return [...merged, ...customMap.values()];
@@ -249,6 +251,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
               system: string; buildType: string; mulchBins: number | null;
               mulchType: string; dimensions: unknown; probeLabels: string[] | null;
               buildDate?: string;
+              performanceRating?: number | null;
             }> = data.infos || [];
             const byName = new Map(infos.map(i => [i.system, i]));
             const knownSystems = [...COMPOST_SYSTEMS, ...cleanCustomSystems];
@@ -270,6 +273,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
                   ? sheetInfo.probeLabels
                   : base.probeLabels,
                 buildDate: sheetInfo.buildDate || base.buildDate,
+                performanceRating: sheetInfo.performanceRating ?? base.performanceRating,
               };
               if (JSON.stringify(next) !== JSON.stringify(customById.get(sys.id))) {
                 await saveCustomSystem(next);
@@ -292,13 +296,14 @@ export function CompostProvider({ children }: { children: ReactNode }) {
             const allCurrent = [...COMPOST_SYSTEMS, ...await getAllCustomSystems()];
             for (const sys of allCurrent) {
               const hasLocal = !!(sys.buildType || sys.mulchBins != null || sys.mulchType
-                || sys.dimensions || sys.buildDate
+                || sys.dimensions || sys.buildDate || sys.performanceRating != null
                 || (sys.probeLabels && sys.probeLabels.length > 0));
               if (!hasLocal) continue;
               const sheetInfo = byName.get(sys.name);
               const sheetHas = !!(sheetInfo && (
                 sheetInfo.buildType || sheetInfo.mulchBins != null || sheetInfo.mulchType
                 || sheetInfo.dimensions || sheetInfo.buildDate
+                || sheetInfo.performanceRating != null
                 || (sheetInfo.probeLabels && sheetInfo.probeLabels.length > 0)
               ));
               if (sheetHas) continue;
@@ -313,6 +318,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
                   dimensions: sys.dimensions || null,
                   probeLabels: sys.probeLabels || null,
                   buildDate: sys.buildDate || '',
+                  performanceRating: sys.performanceRating ?? null,
                 }),
               }).catch(() => { /* offline retry on next open */ });
             }
@@ -567,6 +573,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
           dimensions: system.dimensions || null,
           probeLabels: system.probeLabels || null,
           buildDate: system.buildDate || '',
+          performanceRating: system.performanceRating ?? null,
         }),
       }).catch(err => console.warn('Build info sync failed:', err));
     }
@@ -596,6 +603,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
           dimensions: system.dimensions || null,
           probeLabels: system.probeLabels || null,
           buildDate: system.buildDate || '',
+          performanceRating: system.performanceRating ?? null,
         }),
       }).catch(err => console.warn('Build info sync failed:', err));
     }

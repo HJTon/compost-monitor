@@ -8,6 +8,7 @@ import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer, Image as ImageIc
 import { Header } from '@/components/Header';
 import { InlinePhotoSlot } from '@/components/InlinePhotoSlot';
 import { BuildDescription } from '@/components/BuildDescription';
+import { BuildVitals } from '@/components/BuildVitals';
 import { getSystemById, KILL_TEMP_F, KILL_DAYS_REQUIRED, generateId } from '@/utils/config';
 import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
@@ -282,7 +283,7 @@ export function SystemAnalysePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicView = location.pathname.startsWith('/view');
-  const { getSystem, businesses, settings } = useCompost();
+  const { getSystem, businesses, settings, updateCustomSystem } = useCompost();
   const hardcoded = systemId ? getSystemById(systemId) : undefined;
   const custom = systemId ? getSystem(systemId) : undefined;
   const system = custom || hardcoded;
@@ -294,6 +295,9 @@ export function SystemAnalysePage() {
   const [currentStreak, setCurrentStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
+  // Earliest reading date (YYYY-MM-DD) — Build vitals falls back to this when
+  // no canonical buildDate has been set.
+  const [firstEntryDate, setFirstEntryDate] = useState<string | null>(null);
   const [composition, setComposition] = useState<CompositionItem[]>([]);
   const [binCount, setBinCount] = useState(0);
   const [compLoading, setCompLoading] = useState(true);
@@ -540,6 +544,7 @@ export function SystemAnalysePage() {
     setCurrentStreak(0);
     setLongestStreak(0);
     setSheetDimensions(null);
+    setFirstEntryDate(null);
     Promise.all([
       fetchJsonWithRetry<{ entries?: SheetEntry[]; sheetDimensions?: { heightCm: number | null; widthCm: number | null; lengthCm: number | null } }>(
         `/.netlify/functions/compost-sheets-history?tab=${encodeURIComponent(system.sheetTab)}&limit=365`
@@ -576,6 +581,7 @@ export function SystemAnalysePage() {
           });
           const entries: SheetEntry[] = rawEntries;
           setTotalEntries(entries.length);
+          setFirstEntryDate(ddmmyyyyToIso(entries[0].date) || null);
 
           // Chart data: continuous day-by-day with interpolated estimates in gaps
           const series = buildContinuousSeries(entries);
@@ -683,6 +689,28 @@ export function SystemAnalysePage() {
   const killLineValue = useCelsius ? fToC(KILL_TEMP_F)! : KILL_TEMP_F;
   const tempUnit = useCelsius ? '°C' : '°F';
 
+  // Build vitals: F:B ratio from the most recent readiness check (checks are
+  // sorted oldest → newest), and the manual performance rating handler.
+  const latestFbRatio = readinessChecks.length > 0
+    ? (readinessChecks[readinessChecks.length - 1].results.fbRatio ?? null)
+    : null;
+
+  // Rating writes through updateCustomSystem, which stores an override row in
+  // IndexedDB (works for the hardcoded 11 as well as custom builds) and pushes
+  // the value to the shared Build Info sheet. 0 clears the rating.
+  const handleRate = useCallback(async (rating: number) => {
+    if (!system) return;
+    try {
+      await updateCustomSystem({
+        ...system,
+        performanceRating: rating > 0 ? rating : undefined,
+      });
+      addToast('success', rating > 0 ? `Rated ${rating} of 5` : 'Rating cleared');
+    } catch {
+      addToast('error', 'Could not save rating');
+    }
+  }, [system, updateCustomSystem, addToast]);
+
   if (!system) {
     return (
       <div className="min-h-screen bg-green-50/50">
@@ -739,6 +767,15 @@ export function SystemAnalysePage() {
 
         {/* Pile description — build type, notes, summary */}
         <BuildDescription system={system} readOnly={isPublicView} />
+
+        {/* Build vitals — at-a-glance build date, age, maturation, trials, rating */}
+        <BuildVitals
+          system={system}
+          firstEntryDate={firstEntryDate}
+          latestFbRatio={latestFbRatio}
+          readOnly={isPublicView}
+          onRate={handleRate}
+        />
 
         {/* Composition + Build-start photos */}
         <div className="grid md:grid-cols-2 gap-6">

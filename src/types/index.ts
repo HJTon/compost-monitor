@@ -65,6 +65,8 @@ export interface CompostSystem {
   maturation?: MaturationInfo;
   /** Grow-phase metadata — set when phase moves to 'grow' */
   grow?: GrowInfo;
+  /** Overall performance rating 1–5, set manually. */
+  performanceRating?: number;
 }
 
 export interface ProbeReading {

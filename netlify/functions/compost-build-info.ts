@@ -13,9 +13,10 @@ const HEADERS = [
   'ProbeLabels',  // H  (JSON array of strings)
   'UpdatedAt',    // I
   'BuildDate',    // J  (YYYY-MM-DD — canonical date the pile was built)
+  'Rating',       // K  (1–5 overall performance rating, set manually)
 ];
-const RANGE = `'${TAB}'!A:J`;
-const HEADER_RANGE = `'${TAB}'!A1:J1`;
+const RANGE = `'${TAB}'!A:K`;
+const HEADER_RANGE = `'${TAB}'!A1:K1`;
 
 function getSheetsClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '{}');
@@ -78,6 +79,8 @@ interface BuildInfo {
   updatedAt: string;
   /** YYYY-MM-DD — canonical build date (Bin Tracker keeps its own DD-MMM-YYYY copy) */
   buildDate: string;
+  /** Overall performance rating 1–5, set manually on the Analyse page */
+  performanceRating: number | null;
 }
 
 function parseJson<T>(raw: string | undefined): T | null {
@@ -88,6 +91,8 @@ function parseJson<T>(raw: string | undefined): T | null {
 function parseRow(r: string[]): BuildInfo {
   const mulchBinsRaw = r[4];
   const mulchBins = mulchBinsRaw && mulchBinsRaw !== '' ? Number(mulchBinsRaw) : null;
+  const ratingRaw = r[10];
+  const rating = ratingRaw && ratingRaw !== '' ? Number(ratingRaw) : null;
   return {
     system: r[0] || '',
     notes: r[1] || '',
@@ -99,6 +104,7 @@ function parseRow(r: string[]): BuildInfo {
     probeLabels: parseJson<string[]>(r[7]),
     updatedAt: r[8] || '',
     buildDate: r[9] || '',
+    performanceRating: rating !== null && !isNaN(rating) ? rating : null,
   };
 }
 
@@ -119,6 +125,7 @@ function buildRow(info: BuildInfo): string[] {
     info.probeLabels ? JSON.stringify(info.probeLabels) : '',
     info.updatedAt,
     info.buildDate,
+    info.performanceRating !== null ? String(info.performanceRating) : '',
   ];
 }
 
@@ -163,7 +170,7 @@ export default async (request: Request, _context: Context) => {
           info: match || {
             system, notes: '', summary: '', buildType: '',
             mulchBins: null, mulchType: '', dimensions: null, probeLabels: null,
-            updatedAt: '', buildDate: '',
+            updatedAt: '', buildDate: '', performanceRating: null,
           },
         }), { status: 200, headers: JSON_HEADERS });
       }
@@ -194,7 +201,7 @@ export default async (request: Request, _context: Context) => {
         : {
             system, notes: '', summary: '', buildType: '',
             mulchBins: null, mulchType: '', dimensions: null, probeLabels: null,
-            updatedAt: '', buildDate: '',
+            updatedAt: '', buildDate: '', performanceRating: null,
           };
 
       // Merge: any provided field overrides existing; undefined leaves it alone.
@@ -211,13 +218,19 @@ export default async (request: Request, _context: Context) => {
         probeLabels: body.probeLabels !== undefined ? body.probeLabels : existing.probeLabels,
         updatedAt: new Date().toISOString(),
         buildDate: body.buildDate !== undefined ? String(body.buildDate) : existing.buildDate,
+        performanceRating: body.performanceRating !== undefined
+          ? (body.performanceRating === null || body.performanceRating === ''
+              || isNaN(Number(body.performanceRating))
+              ? null
+              : Number(body.performanceRating))
+          : existing.performanceRating,
       };
 
       const row = buildRow(merged);
       if (foundIndex >= 0) {
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: `'${TAB}'!A${foundIndex + 1}:J${foundIndex + 1}`,
+          range: `'${TAB}'!A${foundIndex + 1}:K${foundIndex + 1}`,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [row] },
         });
