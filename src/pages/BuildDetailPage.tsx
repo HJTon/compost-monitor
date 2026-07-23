@@ -12,6 +12,13 @@ import type { ScanOutcome } from '@/components/BinScanner';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
 import { calcVolumeLitres, formatVolume } from '@/utils/volume';
+import {
+  parseTrackerDate,
+  earliestBatchingISO as earliestBatchingFrom,
+  isISODate,
+  persistBuildDate,
+  BuildDateLocalError,
+} from '@/utils/buildDate';
 import type { BuildShape, BuildDimensions, MaturationInfo, GrowInfo } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -36,24 +43,6 @@ interface AvailableBin {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function parseTrackerDate(dateStr: string): Date | null {
-  if (!dateStr?.trim()) return null;
-  const m = dateStr.trim().match(/^(\d{1,2})-([A-Za-z]{3,})-(\d{4})$/);
-  if (m) {
-    const d = new Date(`${m[2]} ${parseInt(m[1])}, ${m[3]}`);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}
-
-/** Local Date → YYYY-MM-DD (no UTC shift) */
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 const COLOUR_MAP: Record<string, string> = {
   red: 'bg-red-100 text-red-700',
@@ -393,40 +382,23 @@ export function BuildDetailPage() {
   async function handleSaveBuildDate() {
     if (!system || savingBuildDate) return;
     const date = buildDateInput.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (!isISODate(date)) {
       addToast('error', 'Pick a valid date first');
       return;
     }
     setSavingBuildDate(true);
     try {
-      // 1. Local + Build Info sheet
-      await updateCustomSystem({ ...system, buildDate: date });
-    } catch (err) {
-      console.error('Save build date (local) error:', err);
-      addToast('error', 'Failed to save the build date');
-      setSavingBuildDate(false);
-      return;
-    }
-
-    try {
-      // 2. Bin Tracker col J for every bin in this build
-      const res = await fetch('/.netlify/functions/compost-build-date', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buildName: system.name, buildDate: date }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.details || err.error || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      const n = data.binsUpdated ?? 0;
+      const n = await persistBuildDate(system, date, updateCustomSystem);
       addToast('success', `Build date saved · ${n} bin${n === 1 ? '' : 's'} updated in the spreadsheet`);
       setBuildDateOpen(false);
       await reload();
     } catch (err) {
-      console.error('Save build date (sheet) error:', err);
-      addToast('error', 'Build date saved, but the spreadsheet bins did not update — try saving again');
+      addToast(
+        'error',
+        err instanceof BuildDateLocalError
+          ? 'Failed to save the build date'
+          : 'Build date saved, but the spreadsheet bins did not update — try saving again',
+      );
     } finally {
       setSavingBuildDate(false);
     }
@@ -565,13 +537,7 @@ export function BuildDetailPage() {
 
   // Earliest "Date of Batching" across this build's bins — used as the fallback
   // prefill when no canonical buildDate has been set yet.
-  const earliestBatchingISO = (() => {
-    const dates = assignedBins
-      .map(b => parseTrackerDate(b.batchingDate))
-      .filter((d): d is Date => d !== null)
-      .sort((a, b) => a.getTime() - b.getTime());
-    return dates.length > 0 ? toISODate(dates[0]) : '';
-  })();
+  const earliestBatchingISO = earliestBatchingFrom(assignedBins.map(b => b.batchingDate));
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

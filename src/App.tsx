@@ -12,6 +12,7 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { BuildPage } from '@/pages/BuildPage';
 import { ManagePage } from '@/pages/ManagePage';
 import { BuildDetailPage } from '@/pages/BuildDetailPage';
+import { BuildDatesPage } from '@/pages/BuildDatesPage';
 import { AnalysePage } from '@/pages/AnalysePage';
 import { CohortPage } from '@/pages/CohortPage';
 import { TypeVsTypePage } from '@/pages/TypeVsTypePage';
@@ -46,6 +47,8 @@ function AppRoutes() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/build" element={<BuildPage />} />
               <Route path="/manage" element={<ManagePage />} />
+              {/* Literal route must come before the :systemId param route */}
+              <Route path="/manage/build-dates" element={<BuildDatesPage />} />
               <Route path="/manage/:systemId" element={<BuildDetailPage />} />
               <Route path="/analyse" element={<AnalysePage />} />
               <Route path="/analyse/cohort" element={<CohortPage />} />

@@ -553,6 +553,9 @@ export function ManagePage() {
 
   const activeSystems = allSystems.filter(s => settings.activeSystems.includes(s.id));
 
+  // Builds with no canonical buildDate — Analyse falls back to an approximate "~" date
+  const missingBuildDates = allSystems.filter(s => !s.buildDate).length;
+
   const getPhase = (s: CompostSystem): BuildPhase => s.phase || 'thermophilic';
   const thermoBuilds = activeSystems.filter(s => getPhase(s) === 'thermophilic');
   const maturationBuilds = activeSystems.filter(s => getPhase(s) === 'maturation');
@@ -989,6 +992,34 @@ export function ManagePage() {
             )}
           </div>
         </div>
+
+        {/* ── Build dates sweep ───────────────────────────────────────── */}
+        <button
+          onClick={() => navigate('/manage/build-dates')}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left active:scale-[0.98] transition-transform ${
+            missingBuildDates > 0
+              ? 'bg-amber-50 border-amber-200'
+              : 'bg-white border-gray-100 shadow-sm'
+          }`}
+        >
+          <CalendarDays
+            size={18}
+            className={`shrink-0 ${missingBuildDates > 0 ? 'text-amber-600' : 'text-gray-300'}`}
+          />
+          <div className="flex-1 min-w-0">
+            <p className={`text-sm font-medium ${missingBuildDates > 0 ? 'text-amber-800' : 'text-gray-500'}`}>
+              {missingBuildDates > 0
+                ? `${missingBuildDates} build${missingBuildDates === 1 ? '' : 's'} have no build date`
+                : 'All builds have a build date'}
+            </p>
+            <p className={`text-xs ${missingBuildDates > 0 ? 'text-amber-600/70' : 'text-gray-400'}`}>
+              {missingBuildDates > 0
+                ? 'Analyse shows an approximate ~ date until these are set'
+                : 'Tap to review or correct them'}
+            </p>
+          </div>
+          <ArrowRight size={16} className={`shrink-0 ${missingBuildDates > 0 ? 'text-amber-400' : 'text-gray-300'}`} />
+        </button>
 
         {/* ── Thermophilic builds ─────────────────────────────────────── */}
         <PhaseSection
