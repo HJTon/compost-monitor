@@ -77,6 +77,8 @@ export function PhaseModal({ system, mode, onClose }: Props) {
   /** How many piles already sit in each run — shown against every option. */
   const pilesInRun = useMemo(() => pileCountsByRun(allSystems), [allSystems]);
 
+  const activeTrialType = TRIAL_TYPES.find(t => t.id === trialType);
+
   // Runs this trial could join: same stage, newest first. A run this build is
   // already in still shows — a pile can be re-tested in a later run.
   const runsForType = useMemo(
@@ -321,7 +323,10 @@ export function PhaseModal({ system, mode, onClose }: Props) {
               {/* Protocol stage — pick this first, it prefills the rest */}
               <div>
                 <label className="text-xs font-medium text-gray-500 block mb-1">Trial type</label>
-                <div className="space-y-1.5">
+                {/* Chips, not stacked cards. Three full-width rows each with a
+                    hint line pushed the Add button far below the fold on a
+                    phone; the hint for the chosen one is enough. */}
+                <div className="flex flex-wrap gap-1.5">
                   {TRIAL_TYPES.map(t => {
                     const active = trialType === t.id;
                     return (
@@ -329,25 +334,23 @@ export function PhaseModal({ system, mode, onClose }: Props) {
                         key={t.id}
                         type="button"
                         onClick={() => pickTrialType(t.id)}
-                        className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
+                        className={`text-xs px-2.5 py-1.5 rounded-full border transition-colors ${
                           active
-                            ? 'border-purple-400 bg-purple-50'
-                            : 'border-gray-200 bg-white hover:border-purple-200'
+                            ? 'border-purple-400 bg-purple-100 text-purple-800 font-medium'
+                            : 'border-gray-200 bg-white text-gray-600 hover:border-purple-200'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`text-sm font-medium ${active ? 'text-purple-900' : 'text-gray-800'}`}>
-                            {t.label}
-                          </span>
-                          <span className="text-[11px] text-gray-400 shrink-0">
-                            {t.days != null ? `${t.days} days` : 'open-ended'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{t.hint}</p>
+                        {t.label}
+                        <span className={active ? 'text-purple-500' : 'text-gray-400'}>
+                          {t.days != null ? ` · ${t.days}d` : ' · open'}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
+                {activeTrialType && (
+                  <p className="text-xs text-gray-500 mt-1">{activeTrialType.hint}</p>
+                )}
               </div>
 
               {showProtocolNudge && (
@@ -397,9 +400,11 @@ export function PhaseModal({ system, mode, onClose }: Props) {
                     }`}
                   >
                     <div className="text-sm font-medium text-gray-800">Start a new run</div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Controls are added afterwards on the run page.
-                    </p>
+                    {runChoice.kind === 'new' && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Controls are added afterwards on the run page.
+                      </p>
+                    )}
                   </button>
 
                   <button
@@ -410,9 +415,11 @@ export function PhaseModal({ system, mode, onClose }: Props) {
                     }`}
                   >
                     <div className="text-sm font-medium text-gray-800">Not part of a run</div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      A one-off trial on this pile — no shared controls, so no pass/check verdict.
-                    </p>
+                    {runChoice.kind === 'none' && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        A one-off trial on this pile — no shared controls, so no pass/check verdict.
+                      </p>
+                    )}
                   </button>
                 </div>
               </div>
@@ -477,7 +484,10 @@ export function PhaseModal({ system, mode, onClose }: Props) {
                   placeholder="e.g. South bed, row 2"
                 />
               </div>
-              <div className="pt-2 flex gap-2">
+              {/* Pinned to the bottom of the scrolling panel. This form is long
+                  on a phone once the stage and run pickers are in, and the
+                  primary action must never be somewhere you have to hunt for. */}
+              <div className="sticky bottom-0 -mx-4 px-4 pt-2 pb-3 bg-white border-t border-gray-100 flex gap-2">
                 <button
                   onClick={onClose}
                   className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600"
