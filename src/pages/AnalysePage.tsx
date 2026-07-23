@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, TrendingUp, GitCompareArrows, Layers, Scale, Leaf, FlaskConical } from 'lucide-react';
 import { Header } from '@/components/Header';
+import { TrialProtocolOverview } from '@/components/TrialProtocolOverview';
 import { useCompost } from '@/contexts/CompostContext';
 import type { CompostSystem } from '@/types';
 
@@ -192,6 +193,9 @@ export function AnalysePage() {
             </div>
           </div>
         </div>
+
+        {/* Protocol progress for every build — germination / broad bean / crop trials */}
+        <TrialProtocolOverview systems={activeSystems} />
 
         <p className="text-sm text-gray-500 mb-1 pt-2">
           Or select a system to view its individual analysis.

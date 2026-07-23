@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Thermometer, CheckCircle, Clock, FlaskConical, Leaf } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
+import { TrialsDueCard } from '@/components/TrialsDueCard';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, formatTempF } from '@/utils/config';
 import type { DailyEntry } from '@/types';
@@ -101,6 +102,10 @@ export function DashboardPage() {
             History
           </button>
         )}
+
+        {/* Growth trials that are due or overdue — renders nothing when nothing's due.
+            Grow-phase builds are hidden from the list below, so this is their only prompt. */}
+        <TrialsDueCard />
 
         {/* System cards */}
         <div className="space-y-3">
