@@ -13,6 +13,9 @@ interface BuildSummary {
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
+  // Canonical buildDate is YYYY-MM-DD; sheet entry dates are DD/MM/YYYY
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
   const dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (dm) return new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]));
   return null;
@@ -82,13 +85,15 @@ export function AnalysePage() {
             if (entries.length > 0) {
               const first = entries[0];
               const last = entries[entries.length - 1];
-              const firstDate = parseDate(first.date);
+              // Canonical build date wins; fall back to the first reading's date
+              const startDate = system.buildDate || first.date;
+              const firstDate = parseDate(startDate);
               const lastDate = parseDate(last.date);
               const dayCount = firstDate && lastDate
                 ? Math.round((lastDate.getTime() - firstDate.getTime()) / 86400000) + 1
                 : entries.length;
               results[system.id] = {
-                startDate: first.date,
+                startDate,
                 dayCount,
                 readingCount: entries.length,
               };

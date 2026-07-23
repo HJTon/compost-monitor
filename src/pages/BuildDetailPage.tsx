@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Hammer, CheckSquare, Square, Loader2, Package, ScanLine,
   Trash2, Plus, Palette, Pencil, RotateCw, Ruler, Save, Thermometer, Minus,
+  CalendarDays,
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
@@ -44,6 +45,14 @@ function parseTrackerDate(dateStr: string): Date | null {
     return isNaN(d.getTime()) ? null : d;
   }
   return null;
+}
+
+/** Local Date → YYYY-MM-DD (no UTC shift) */
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const COLOUR_MAP: Record<string, string> = {
@@ -109,6 +118,11 @@ export function BuildDetailPage() {
   const [turnOpen, setTurnOpen] = useState(false);
   const [turnDate, setTurnDate] = useState(getNZDate()); // YYYY-MM-DD
   const [loggingTurn, setLoggingTurn] = useState(false);
+
+  // Build date editing
+  const [buildDateOpen, setBuildDateOpen] = useState(false);
+  const [buildDateInput, setBuildDateInput] = useState(system?.buildDate || ''); // YYYY-MM-DD
+  const [savingBuildDate, setSavingBuildDate] = useState(false);
 
   // Dimensions editing
   const [dimsOpen, setDimsOpen] = useState(false);
@@ -369,6 +383,49 @@ export function BuildDetailPage() {
     }
   }
 
+  // ── Save build date ────────────────────────────────────────────────────
+  async function handleSaveBuildDate() {
+    if (!system || savingBuildDate) return;
+    const date = buildDateInput.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      addToast('error', 'Pick a valid date first');
+      return;
+    }
+    setSavingBuildDate(true);
+    try {
+      // 1. Local + Build Info sheet
+      await updateCustomSystem({ ...system, buildDate: date });
+    } catch (err) {
+      console.error('Save build date (local) error:', err);
+      addToast('error', 'Failed to save the build date');
+      setSavingBuildDate(false);
+      return;
+    }
+
+    try {
+      // 2. Bin Tracker col J for every bin in this build
+      const res = await fetch('/.netlify/functions/compost-build-date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buildName: system.name, buildDate: date }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.details || err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const n = data.binsUpdated ?? 0;
+      addToast('success', `Build date saved · ${n} bin${n === 1 ? '' : 's'} updated in the spreadsheet`);
+      setBuildDateOpen(false);
+      await reload();
+    } catch (err) {
+      console.error('Save build date (sheet) error:', err);
+      addToast('error', 'Build date saved, but the spreadsheet bins did not update — try saving again');
+    } finally {
+      setSavingBuildDate(false);
+    }
+  }
+
   // ── Save dimensions ────────────────────────────────────────────────────
   async function handleSaveDimensions() {
     if (!system) return;
@@ -450,6 +507,16 @@ export function BuildDetailPage() {
   // Volume calculation from current dimensions
   const initialVolume = system?.dimensions ? calcVolumeLitres(system.dimensions) : null;
 
+  // Earliest "Date of Batching" across this build's bins — used as the fallback
+  // prefill when no canonical buildDate has been set yet.
+  const earliestBatchingISO = (() => {
+    const dates = assignedBins
+      .map(b => parseTrackerDate(b.batchingDate))
+      .filter((d): d is Date => d !== null)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return dates.length > 0 ? toISODate(dates[0]) : '';
+  })();
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-green-50/50 pb-32">
@@ -519,6 +586,21 @@ export function BuildDetailPage() {
             >
               <RotateCw size={14} />
               Log turn
+            </button>
+            <button
+              onClick={() => {
+                setBuildDateOpen(o => !o);
+                setBuildDateInput(system?.buildDate || earliestBatchingISO || '');
+              }}
+              disabled={loading || !!loadError}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                buildDateOpen
+                  ? 'border-green-primary text-green-primary bg-green-50'
+                  : 'border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-700'
+              }`}
+            >
+              <CalendarDays size={14} />
+              Build date
             </button>
             <button
               onClick={() => setDimsOpen(o => !o)}
@@ -617,6 +699,34 @@ export function BuildDetailPage() {
               >
                 <RotateCw size={12} className={loggingTurn ? 'animate-spin' : ''} />
                 {loggingTurn ? 'Logging…' : 'Log turn'}
+              </button>
+            </div>
+          )}
+
+          {/* Build date panel */}
+          {buildDateOpen && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+              <p className="text-xs text-gray-500 font-medium">Date this pile was built</p>
+              <div>
+                <input
+                  type="date"
+                  value={buildDateInput}
+                  max={getNZDate()}
+                  onChange={e => setBuildDateInput(e.target.value)}
+                  className="w-full mt-0.5 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:border-green-primary outline-none"
+                />
+                <p className="text-[11px] text-gray-400 mt-1 leading-tight">
+                  Used for pile age and day-numbering. Also updates the batching
+                  date on this build's bins in the spreadsheet.
+                </p>
+              </div>
+              <button
+                onClick={handleSaveBuildDate}
+                disabled={savingBuildDate || !buildDateInput}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-primary text-white font-medium disabled:opacity-50"
+              >
+                <Save size={12} />
+                {savingBuildDate ? 'Saving…' : 'Save build date'}
               </button>
             </div>
           )}

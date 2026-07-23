@@ -263,6 +263,7 @@ export function BuildPage() {
         sheetTab: buildName.trim(),
         active: true,
         probeLabels,
+        buildDate,
         buildType: buildType || undefined,
         mulchBins: mulchBins.trim() ? parseFloat(mulchBins) : undefined,
         mulchType: mulchType || undefined,

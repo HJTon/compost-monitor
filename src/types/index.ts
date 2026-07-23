@@ -49,6 +49,8 @@ export interface CompostSystem {
   sheetTab: string;
   active: boolean;
   probeLabels: string[];
+  /** Date the pile was physically built (YYYY-MM-DD). Canonical; editable. */
+  buildDate?: string;
   /** Build type e.g. "Standard Johnson Su" */
   buildType?: string;
   /** Number of wheelie bins of mulch added */

@@ -127,7 +127,8 @@ async function loadBuildCurve(system: CompostSystem, signal: AbortSignal): Promi
     return {
       system,
       season,
-      startDate: day0.toISOString().slice(0, 10),
+      // Display only — the day-0 anchor for the curves stays the first reading
+      startDate: system.buildDate || day0.toISOString().slice(0, 10),
       points,
       daysToKill,
       peakMax,

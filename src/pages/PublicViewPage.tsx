@@ -10,6 +10,9 @@ interface BuildSummary {
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
+  // Canonical buildDate is YYYY-MM-DD; sheet entry dates are DD/MM/YYYY
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
   const dm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (dm) return new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1]));
   return null;
@@ -40,10 +43,12 @@ export function PublicViewPage() {
           const data = await res.json();
           const entries = data.entries || [];
           if (entries.length > 0) {
-            const firstDate = parseDate(entries[0].date);
+            // Canonical build date wins; fall back to the first reading's date
+            const startDate = sys.buildDate || entries[0].date;
+            const firstDate = parseDate(startDate);
             const lastDate = parseDate(entries[entries.length - 1].date);
             results[sys.id] = {
-              startDate: entries[0].date,
+              startDate,
               dayCount: firstDate && lastDate ? Math.round((lastDate.getTime() - firstDate.getTime()) / 86400000) + 1 : entries.length,
             };
           }

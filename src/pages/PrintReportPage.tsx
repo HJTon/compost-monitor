@@ -13,6 +13,12 @@ interface SummaryData {
   avgPeak: number | null;
 }
 
+/** YYYY-MM-DD → DD/MM/YYYY, to match the sheet's entry-date display format */
+function isoToDisplayDate(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
 export function PrintReportPage() {
   const { systemId } = useParams<{ systemId: string }>();
   const { getSystem, settings } = useCompost();
@@ -38,7 +44,8 @@ export function PrintReportPage() {
         const first = entries[0];
         const peaks: number[] = entries.map((e: { peak?: number | null }) => e.peak).filter((v: number | null | undefined): v is number => typeof v === 'number');
         setSummary({
-          startDate: first.date,
+          // Canonical build date wins; fall back to the first reading's date
+          startDate: system.buildDate ? isoToDisplayDate(system.buildDate) : first.date,
           dayCount: entries.length,
           readingCount: entries.length,
           peakTemp: peaks.length > 0 ? Math.max(...peaks) : null,

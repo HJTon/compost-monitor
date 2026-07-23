@@ -12,9 +12,10 @@ const HEADERS = [
   'Dimensions',   // G  (JSON: { shape, lengthCm, widthCm, diameterCm, heightCm })
   'ProbeLabels',  // H  (JSON array of strings)
   'UpdatedAt',    // I
+  'BuildDate',    // J  (YYYY-MM-DD — canonical date the pile was built)
 ];
-const RANGE = `'${TAB}'!A:I`;
-const HEADER_RANGE = `'${TAB}'!A1:I1`;
+const RANGE = `'${TAB}'!A:J`;
+const HEADER_RANGE = `'${TAB}'!A1:J1`;
 
 function getSheetsClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '{}');
@@ -75,6 +76,8 @@ interface BuildInfo {
   dimensions: unknown | null;
   probeLabels: string[] | null;
   updatedAt: string;
+  /** YYYY-MM-DD — canonical build date (Bin Tracker keeps its own DD-MMM-YYYY copy) */
+  buildDate: string;
 }
 
 function parseJson<T>(raw: string | undefined): T | null {
@@ -95,6 +98,7 @@ function parseRow(r: string[]): BuildInfo {
     dimensions: parseJson(r[6]),
     probeLabels: parseJson<string[]>(r[7]),
     updatedAt: r[8] || '',
+    buildDate: r[9] || '',
   };
 }
 
@@ -114,6 +118,7 @@ function buildRow(info: BuildInfo): string[] {
     info.dimensions ? JSON.stringify(info.dimensions) : '',
     info.probeLabels ? JSON.stringify(info.probeLabels) : '',
     info.updatedAt,
+    info.buildDate,
   ];
 }
 
@@ -158,7 +163,7 @@ export default async (request: Request, _context: Context) => {
           info: match || {
             system, notes: '', summary: '', buildType: '',
             mulchBins: null, mulchType: '', dimensions: null, probeLabels: null,
-            updatedAt: '',
+            updatedAt: '', buildDate: '',
           },
         }), { status: 200, headers: JSON_HEADERS });
       }
@@ -189,7 +194,7 @@ export default async (request: Request, _context: Context) => {
         : {
             system, notes: '', summary: '', buildType: '',
             mulchBins: null, mulchType: '', dimensions: null, probeLabels: null,
-            updatedAt: '',
+            updatedAt: '', buildDate: '',
           };
 
       // Merge: any provided field overrides existing; undefined leaves it alone.
@@ -205,13 +210,14 @@ export default async (request: Request, _context: Context) => {
         dimensions: body.dimensions !== undefined ? body.dimensions : existing.dimensions,
         probeLabels: body.probeLabels !== undefined ? body.probeLabels : existing.probeLabels,
         updatedAt: new Date().toISOString(),
+        buildDate: body.buildDate !== undefined ? String(body.buildDate) : existing.buildDate,
       };
 
       const row = buildRow(merged);
       if (foundIndex >= 0) {
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: `'${TAB}'!A${foundIndex + 1}:I${foundIndex + 1}`,
+          range: `'${TAB}'!A${foundIndex + 1}:J${foundIndex + 1}`,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [row] },
         });

@@ -248,6 +248,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
             const infos: Array<{
               system: string; buildType: string; mulchBins: number | null;
               mulchType: string; dimensions: unknown; probeLabels: string[] | null;
+              buildDate?: string;
             }> = data.infos || [];
             const byName = new Map(infos.map(i => [i.system, i]));
             const knownSystems = [...COMPOST_SYSTEMS, ...cleanCustomSystems];
@@ -268,6 +269,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
                 probeLabels: (sheetInfo.probeLabels && sheetInfo.probeLabels.length > 0)
                   ? sheetInfo.probeLabels
                   : base.probeLabels,
+                buildDate: sheetInfo.buildDate || base.buildDate,
               };
               if (JSON.stringify(next) !== JSON.stringify(customById.get(sys.id))) {
                 await saveCustomSystem(next);
@@ -290,12 +292,13 @@ export function CompostProvider({ children }: { children: ReactNode }) {
             const allCurrent = [...COMPOST_SYSTEMS, ...await getAllCustomSystems()];
             for (const sys of allCurrent) {
               const hasLocal = !!(sys.buildType || sys.mulchBins != null || sys.mulchType
-                || sys.dimensions || (sys.probeLabels && sys.probeLabels.length > 0));
+                || sys.dimensions || sys.buildDate
+                || (sys.probeLabels && sys.probeLabels.length > 0));
               if (!hasLocal) continue;
               const sheetInfo = byName.get(sys.name);
               const sheetHas = !!(sheetInfo && (
                 sheetInfo.buildType || sheetInfo.mulchBins != null || sheetInfo.mulchType
-                || sheetInfo.dimensions
+                || sheetInfo.dimensions || sheetInfo.buildDate
                 || (sheetInfo.probeLabels && sheetInfo.probeLabels.length > 0)
               ));
               if (sheetHas) continue;
@@ -309,6 +312,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
                   mulchType: sys.mulchType || '',
                   dimensions: sys.dimensions || null,
                   probeLabels: sys.probeLabels || null,
+                  buildDate: sys.buildDate || '',
                 }),
               }).catch(() => { /* offline retry on next open */ });
             }
@@ -548,6 +552,24 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     };
     await dbSaveSettings(newSettings);
     setSettings(newSettings);
+
+    // Seed the shared Build Info row immediately so other devices pick up the
+    // build date and metadata without waiting for a blank-row push-up.
+    if (navigator.onLine) {
+      fetch('/.netlify/functions/compost-build-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system: system.name,
+          buildType: system.buildType || '',
+          mulchBins: system.mulchBins ?? null,
+          mulchType: system.mulchType || '',
+          dimensions: system.dimensions || null,
+          probeLabels: system.probeLabels || null,
+          buildDate: system.buildDate || '',
+        }),
+      }).catch(err => console.warn('Build info sync failed:', err));
+    }
   }, [settings]);
 
   const updateCustomSystem = useCallback(async (system: CompostSystem) => {
@@ -573,6 +595,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
           mulchType: system.mulchType || '',
           dimensions: system.dimensions || null,
           probeLabels: system.probeLabels || null,
+          buildDate: system.buildDate || '',
         }),
       }).catch(err => console.warn('Build info sync failed:', err));
     }

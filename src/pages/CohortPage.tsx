@@ -126,7 +126,8 @@ export function CohortPage() {
             return {
               system,
               points,
-              startDate: dated[0].date.toISOString().slice(0, 10),
+              // Display only — the day-0 anchor for the curves stays the first reading
+              startDate: system.buildDate || dated[0].date.toISOString().slice(0, 10),
               daysToKill,
               peakMax,
               readingCount: points.length,
