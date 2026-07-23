@@ -11,7 +11,12 @@ import {
   getNZDate,
   generateId,
 } from '@/utils/config';
-import type { CompostSystem, MaturationInfo, GrowTrial } from '@/types';
+import {
+  TRIAL_TYPES,
+  BROAD_BEAN_CROP,
+  hasCompletedGermination,
+} from '@/utils/trials';
+import type { CompostSystem, MaturationInfo, GrowTrial, TrialType } from '@/types';
 
 interface Props {
   system: CompostSystem;
@@ -31,9 +36,25 @@ export function PhaseModal({ system, mode, onClose }: Props) {
   const [date, setDate] = useState(getNZDate());
 
   // Trial state
+  const [trialType, setTrialType] = useState<TrialType>('germination');
+  const [plannedDays, setPlannedDays] = useState<string>('5');
   const [method, setMethod] = useState('');
   const [crop, setCrop] = useState('');
   const [notes, setNotes] = useState('');
+
+  const existingTrials = system.grow?.trials ?? [];
+  // Non-blocking protocol nudge — germination usually comes first.
+  const showProtocolNudge =
+    (trialType === 'growth-test' || trialType === 'crop') &&
+    !hasCompletedGermination(existingTrials);
+
+  const pickTrialType = (type: TrialType) => {
+    setTrialType(type);
+    const def = TRIAL_TYPES.find(t => t.id === type);
+    setPlannedDays(def?.days != null ? String(def.days) : '');
+    // Broad bean test defaults its crop — still changeable.
+    if (type === 'growth-test' && !crop) setCrop(BROAD_BEAN_CROP);
+  };
 
   const [saving, setSaving] = useState(false);
 
@@ -82,18 +103,23 @@ export function PhaseModal({ system, mode, onClose }: Props) {
       return;
     }
     setSaving(true);
+    const days = plannedDays.trim() ? parseInt(plannedDays, 10) : NaN;
     const trial: GrowTrial = {
       id: generateId(),
       method,
       crop,
       notes: notes.trim() || undefined,
       createdAt: `${date}T00:00:00`,
+      trialType,
+      startedAt: date,
+      plannedDays: Number.isFinite(days) && days > 0 ? days : null,
     };
     const current = system.grow || { startedAt: date, trials: [] };
     const next = { ...current, trials: [...current.trials, trial] };
+    const typeLabel = TRIAL_TYPES.find(t => t.id === trialType)?.label || 'Trial';
     await setSystemPhase(system.id, 'grow', {
       grow: next,
-      transitionNote: `+ Trial (${date}): ${method} · ${crop}`,
+      transitionNote: `+ ${typeLabel} (${date}): ${method} · ${crop}`,
     });
     addToast('success', 'Trial added');
     onClose();
@@ -117,7 +143,7 @@ export function PhaseModal({ system, mode, onClose }: Props) {
         <div className="p-4 space-y-3">
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1">
-              {mode === 'addTrial' ? 'Trial date' : 'Transition date'}
+              {mode === 'addTrial' ? 'Trial start date' : 'Transition date'}
             </label>
             <input
               type="date"
@@ -198,6 +224,56 @@ export function PhaseModal({ system, mode, onClose }: Props) {
 
           {mode === 'addTrial' && (
             <>
+              {/* Protocol stage — pick this first, it prefills the rest */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Trial type</label>
+                <div className="space-y-1.5">
+                  {TRIAL_TYPES.map(t => {
+                    const active = trialType === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => pickTrialType(t.id)}
+                        className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
+                          active
+                            ? 'border-purple-400 bg-purple-50'
+                            : 'border-gray-200 bg-white hover:border-purple-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-sm font-medium ${active ? 'text-purple-900' : 'text-gray-800'}`}>
+                            {t.label}
+                          </span>
+                          <span className="text-[11px] text-gray-400 shrink-0">
+                            {t.days != null ? `${t.days} days` : 'open-ended'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{t.hint}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {showProtocolNudge && (
+                <p className="text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
+                  Tip: the 5-day germination test usually comes first.
+                </p>
+              )}
+
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Planned days (optional)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={plannedDays}
+                  onChange={e => setPlannedDays(e.target.value)}
+                  placeholder="Leave blank for open-ended"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-primary"
+                />
+              </div>
+
               <EditableSelect
                 label="Method"
                 value={method}

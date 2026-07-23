@@ -25,6 +25,9 @@ export interface MaturationInfo {
   startedAt: string;
 }
 
+/** Protocol stage of a grow trial. Legacy trials have no value — treat as 'crop'. */
+export type TrialType = 'germination' | 'growth-test' | 'crop';
+
 export interface GrowTrial {
   id: string;
   /** Method e.g. "As mulch", "Top dress", "Trench at side", "Plant directly in" */
@@ -34,6 +37,16 @@ export interface GrowTrial {
   /** Optional free-form notes about the trial */
   notes?: string;
   createdAt: string;
+  /** Protocol stage — undefined on legacy trials, treat as 'crop' */
+  trialType?: TrialType;
+  /** Trial start (YYYY-MM-DD). Legacy fallback: createdAt.slice(0, 10) */
+  startedAt?: string;
+  /** Planned duration in days (5 germination, 21 growth test, null = open-ended) */
+  plannedDays?: number | null;
+  /** Set when the trial is finished (YYYY-MM-DD) */
+  endedAt?: string;
+  /** Outcome summary, e.g. "18/20 germinated, no leaf distortion" */
+  result?: string;
 }
 
 export interface GrowInfo {

@@ -5,6 +5,7 @@ import { useCompost } from '@/contexts/CompostContext';
 import { PHOTO_SLOTS, type MediaIndexItem } from '@/utils/photoSlots';
 import { PhotoGallery } from '@/components/PhotoGallery';
 import { formatNiceDate, daysBetween } from '@/components/BuildVitals';
+import { sortTrials, trialStart, trialStatus, trialTypeDef, trialTypeOf } from '@/utils/trials';
 import { getNZDate } from '@/utils/config';
 import type { ReadinessCheck } from '@/types';
 
@@ -97,7 +98,8 @@ export function PrintReportPage() {
   const daysToMaturation = startIso && maturationStart
     ? daysBetween(startIso, maturationStart)
     : null;
-  const cropList = (system.grow?.trials ?? []).map(t => t.crop).filter(Boolean).join(', ');
+  const trials = system.grow?.trials ?? [];
+  const cropList = trials.map(t => t.crop).filter(Boolean).join(', ');
   const rating = system.performanceRating ?? 0;
 
   return (
@@ -169,6 +171,44 @@ export function PrintReportPage() {
               <div className="font-semibold">{formatTempF(summary.peakTemp, tempUnit)}</div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* Growth trials — compact static list (no photos in v1 print) */}
+      {trials.length > 0 && (
+        <section className="mb-8 break-inside-avoid">
+          <h2 className="text-xl font-semibold border-b pb-1 mb-3">Growth trials</h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                <th className="py-1 pr-3 font-medium">Type</th>
+                <th className="py-1 pr-3 font-medium">Crop</th>
+                <th className="py-1 pr-3 font-medium">Method</th>
+                <th className="py-1 pr-3 font-medium">Dates</th>
+                <th className="py-1 pr-3 font-medium">Status</th>
+                <th className="py-1 font-medium">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortTrials(trials).map(t => {
+                const start = trialStart(t);
+                const status = trialStatus(t);
+                return (
+                  <tr key={t.id} className="border-t align-top break-inside-avoid">
+                    <td className="py-1.5 pr-3">{trialTypeDef(trialTypeOf(t)).label}</td>
+                    <td className="py-1.5 pr-3">{t.crop || '—'}</td>
+                    <td className="py-1.5 pr-3">{t.method || '—'}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">
+                      {formatNiceDate(start) || start || '—'}
+                      {t.endedAt ? ` → ${formatNiceDate(t.endedAt) || t.endedAt}` : ''}
+                    </td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{status.label}</td>
+                    <td className="py-1.5">{t.result || t.notes || '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </section>
       )}
 

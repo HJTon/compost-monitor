@@ -18,6 +18,7 @@ export const PHOTO_TAGS: Array<{ id: string; label: string; emoji?: string }> = 
   { id: 'quality',   label: 'Quality',   emoji: '🔬' },
   { id: 'soil',      label: 'Soil',      emoji: '🪴' },
   { id: 'harvest',   label: 'Harvest',   emoji: '🌾' },
+  { id: 'trial',     label: 'Grow trial', emoji: '🌿' },
   { id: 'mulch',     label: 'Mulch',     emoji: '🍂' },
   { id: 'issue',     label: 'Issue',     emoji: '⚠️' },
   { id: 'general',   label: 'General',   emoji: '📸' },

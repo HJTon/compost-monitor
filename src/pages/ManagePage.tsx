@@ -7,6 +7,8 @@ import { COMPOST_SYSTEMS, generateId } from '@/utils/config';
 import { BinScanner, type ScanOutcome } from '@/components/BinScanner';
 import { formatSerialNumber } from '@/services/ocrService';
 import { PhaseModal } from '@/components/PhaseModal';
+import { TrialCard } from '@/components/TrialCard';
+import { sortTrials } from '@/utils/trials';
 import type { BusinessInfo, ContaminationRecord, CompostSystem, BuildPhase, GrowTrial } from '@/types';
 
 interface BinDetails {
@@ -562,6 +564,16 @@ export function ManagePage() {
     await setSystemPhase(system.id, 'grow', { grow: next });
   };
 
+  // Edit one trial in place — every other trial is carried through untouched.
+  const handleUpdateTrial = async (system: CompostSystem, next: GrowTrial) => {
+    if (!system.grow) return;
+    const grow = {
+      ...system.grow,
+      trials: system.grow.trials.map(t => (t.id === next.id ? next : t)),
+    };
+    await setSystemPhase(system.id, system.phase || 'grow', { grow });
+  };
+
   // Collect unique source names, split into businesses vs events, exclude hidden
   const hiddenNames = useMemo(() => new Set(businesses.filter(b => b.hidden).map(b => b.name)), [businesses]);
 
@@ -1060,27 +1072,15 @@ export function ManagePage() {
 
                     {trials.length > 0 && (
                       <div className="space-y-1.5 pl-2">
-                        {trials.map((t: GrowTrial) => (
-                          <div
+                        {sortTrials(trials).map((t: GrowTrial) => (
+                          <TrialCard
                             key={t.id}
-                            className="flex items-center gap-2 px-3 py-2 bg-purple-50/60 border border-purple-100 rounded-lg"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-purple-900">
-                                {t.method} · {t.crop}
-                              </p>
-                              {t.notes && (
-                                <p className="text-xs text-gray-500 mt-0.5 truncate">{t.notes}</p>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => handleRemoveTrial(system, t.id)}
-                              className="p-1 text-gray-300 hover:text-red-400 transition-colors"
-                              title="Remove trial"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
+                            system={system}
+                            trial={t}
+                            readOnly={false}
+                            onChange={next => handleUpdateTrial(system, next)}
+                            onRemove={tr => handleRemoveTrial(system, tr.id)}
+                          />
                         ))}
                       </div>
                     )}

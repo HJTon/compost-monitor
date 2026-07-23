@@ -106,6 +106,7 @@ export const DEFAULT_TRIAL_METHODS = [
 ];
 
 export const DEFAULT_TRIAL_CROPS = [
+  'Broad bean',
   'Pumpkin',
   'Currants',
   'Potatoes',

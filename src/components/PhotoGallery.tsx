@@ -17,6 +17,8 @@ interface PhotoGalleryProps {
   onTagsChange?: (item: MediaIndexItem, tags: string) => void | Promise<void>;
   singleSlot?: boolean;
   printMode?: boolean;
+  /** Public view — photos are viewable but every mutation control is hidden */
+  readOnly?: boolean;
 }
 
 function imageSrc(it: MediaIndexItem, size = 1600): string {
@@ -52,6 +54,7 @@ function imageSrcChain(it: MediaIndexItem): string[] {
 export function PhotoGallery({
   items, heightClass = 'h-64 md:h-96', onAdd, onRemove, onReplace,
   onCaptionChange, onTransformChange, onEventDateChange, onTagsChange, singleSlot, printMode,
+  readOnly,
 }: PhotoGalleryProps) {
   const [index, setIndex] = useState(0);
   const [lightbox, setLightbox] = useState<MediaIndexItem | null>(null);
@@ -90,7 +93,7 @@ export function PhotoGallery({
 
   // Empty slot — show "Add photo" placeholder
   if (items.length === 0) {
-    if (printMode) return null;
+    if (printMode || readOnly) return null;
     return (
       <button
         onClick={onAdd}
@@ -252,7 +255,8 @@ export function PhotoGallery({
           );
         })()}
 
-        {/* Top-right action cluster */}
+        {/* Top-right action cluster — hidden entirely in read-only (public) view */}
+        {!readOnly && (
         <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {singleSlot && onReplace && (
             <button
@@ -325,6 +329,7 @@ export function PhotoGallery({
             )}
           </div>
         </div>
+        )}
 
         {/* Prev / Next */}
         {multiple && (

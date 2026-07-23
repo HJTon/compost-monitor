@@ -26,6 +26,11 @@ export function EditableSelect({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
 
+  // A stored value can be missing from the list when it was added as a custom
+  // option on another device (custom options live in per-device settings).
+  // Without its own <option> the select would silently render blank.
+  const allOptions = value && !options.includes(value) ? [value, ...options] : options;
+
   const handleSubmitNew = async () => {
     const v = draft.trim();
     if (!v) return;
@@ -48,7 +53,7 @@ export function EditableSelect({
             className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-green-primary"
           >
             <option value="">{placeholder}</option>
-            {options.map(opt => (
+            {allOptions.map(opt => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>

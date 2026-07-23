@@ -4,13 +4,15 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts';
-import { CheckSquare, Square, Loader2, RotateCw, FlaskConical } from 'lucide-react';
+import { CheckSquare, Square, Loader2, RotateCw, FlaskConical, Sprout } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
 import { KILL_TEMP_F, fToC, formatTempF } from '@/utils/config';
-import type { CompostSystem, ReadinessCheck } from '@/types';
+import { TRIAL_TYPES, sortTrials, trialStart, trialStatus, trialsOfType } from '@/utils/trials';
+import { formatNiceDate } from '@/components/BuildVitals';
+import type { CompostSystem, ReadinessCheck, GrowTrial } from '@/types';
 
 // ── Fixed high-contrast palette for comparison lines ─────────────────────────
 const LINE_COLOURS = [
@@ -145,6 +147,7 @@ export function ComparePage() {
   const [showKillLine, setShowKillLine] = useState(true);
   const [showSamples, setShowSamples] = useState(true);
   const [showReadiness, setShowReadiness] = useState(true);
+  const [showTrials, setShowTrials] = useState(true);
 
   // Readiness checks for compared builds
   const [allChecks, setAllChecks] = useState<ReadinessCheck[]>([]);
@@ -166,6 +169,26 @@ export function ComparePage() {
       return { system: bd.system, colour: bd.colour, check: checks[0] || null };
     });
   }, [comparing, buildData, allChecks]);
+
+  // Grow trials per compared build, grouped by protocol stage.
+  // Everything comes from `allSystems` (context) — no extra fetches needed.
+  const growComparison = useMemo(() => {
+    if (!comparing || buildData.length === 0) return [];
+    return buildData.map(bd => {
+      const trials = bd.system.grow?.trials ?? [];
+      return {
+        system: bd.system,
+        colour: bd.colour,
+        total: trials.length,
+        byType: TRIAL_TYPES.map(def => ({
+          def,
+          trials: sortTrials(trialsOfType(trials, def.id)),
+        })),
+      };
+    });
+  }, [comparing, buildData]);
+
+  const anyTrials = growComparison.some(g => g.total > 0);
 
   function toggleSystem(id: string) {
     setSelected(prev => {
@@ -510,6 +533,17 @@ export function ComparePage() {
             >
               <FlaskConical size={12} />
               Readiness
+            </button>
+          )}
+          {anyTrials && (
+            <button
+              onClick={() => setShowTrials(t => !t)}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors flex items-center gap-1 ${
+                showTrials ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'
+              }`}
+            >
+              <Sprout size={12} />
+              Grow trials
             </button>
           )}
         </div>
@@ -873,6 +907,82 @@ export function ComparePage() {
                           </td>
                         );
                       })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── Growth trials comparison ────────────────────────────────── */}
+        {showTrials && anyTrials && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+              <Sprout size={14} className="text-purple-600" />
+              <h3 className="font-semibold text-gray-900">Growth trials</h3>
+              <span className="text-xs text-gray-400 ml-auto">Grouped by protocol stage</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50/80">
+                    <th className="text-left px-3 py-2 font-medium text-gray-500 sticky left-0 bg-gray-50/80 min-w-[110px]">Build</th>
+                    {TRIAL_TYPES.map(def => (
+                      <th key={def.id} className="text-left px-3 py-2 font-medium text-gray-500 min-w-[150px]">
+                        {def.short}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {growComparison.map(row => (
+                    <tr key={row.system.id} className="align-top">
+                      <td className="px-3 py-2 sticky left-0 bg-white">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: row.colour }} />
+                          <span className="text-gray-700 font-medium">{row.system.name}</span>
+                        </div>
+                        <a
+                          href={`${isPublicView ? '/view' : '/analyse'}/${row.system.id}`}
+                          className="text-[10px] text-green-primary font-medium"
+                        >
+                          View →
+                        </a>
+                      </td>
+                      {row.byType.map(cell => (
+                        <td key={cell.def.id} className="px-3 py-2">
+                          {cell.trials.length === 0 ? (
+                            <span className="text-gray-300">—</span>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {cell.trials.map((t: GrowTrial) => {
+                                const status = trialStatus(t);
+                                const start = trialStart(t);
+                                return (
+                                  <div key={t.id} className="space-y-0.5">
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      <span className="text-gray-700 font-medium">{t.crop || '—'}</span>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${status.chipClass}`}>
+                                        {status.state === 'complete' ? 'complete' : status.shortLabel}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-gray-400">
+                                      {formatNiceDate(start) || start || '—'}
+                                      {t.endedAt ? ` → ${formatNiceDate(t.endedAt) || t.endedAt}` : ''}
+                                    </div>
+                                    {t.result && (
+                                      <div className="text-[10px] text-gray-500 truncate max-w-[160px]" title={t.result}>
+                                        {t.result}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>

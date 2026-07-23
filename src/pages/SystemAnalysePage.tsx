@@ -4,16 +4,19 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceDot, Brush,
 } from 'recharts';
-import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer, Image as ImageIcon } from 'lucide-react';
+import { Upload, FlaskConical, ChevronDown, ChevronUp, Printer, Image as ImageIcon, Sprout, Plus } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { InlinePhotoSlot } from '@/components/InlinePhotoSlot';
 import { BuildDescription } from '@/components/BuildDescription';
 import { BuildVitals } from '@/components/BuildVitals';
+import { TrialCard } from '@/components/TrialCard';
+import { PhaseModal } from '@/components/PhaseModal';
+import { protocolProgress, sortTrials, trialStatus } from '@/utils/trials';
 import { getSystemById, KILL_TEMP_F, KILL_DAYS_REQUIRED, generateId } from '@/utils/config';
 import { useCompost } from '@/contexts/CompostContext';
 import { calcVolumeLitres, formatVolume, volumeChangePercent } from '@/utils/volume';
 import { parseReadinessCSV, extractDateFromFilename, getReadinessSummary } from '@/utils/readinessParser';
-import type { ReadinessCheck } from '@/types';
+import type { ReadinessCheck, GrowTrial } from '@/types';
 import type { MediaIndexItem } from '@/utils/photoSlots';
 import { bigThumb } from '@/utils/photoSlots';
 import { fetchJsonWithRetry } from '@/utils/fetchRetry';
@@ -283,7 +286,7 @@ export function SystemAnalysePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPublicView = location.pathname.startsWith('/view');
-  const { getSystem, businesses, settings, updateCustomSystem } = useCompost();
+  const { getSystem, businesses, settings, updateCustomSystem, setSystemPhase } = useCompost();
   const hardcoded = systemId ? getSystemById(systemId) : undefined;
   const custom = systemId ? getSystem(systemId) : undefined;
   const system = custom || hardcoded;
@@ -711,6 +714,30 @@ export function SystemAnalysePage() {
     }
   }, [system, updateCustomSystem, addToast]);
 
+  // ── Growth trials ─────────────────────────────────────────────────────────
+  const trialsRef = useRef<HTMLDivElement>(null);
+  const [showAddTrial, setShowAddTrial] = useState(false);
+
+  // Replace one trial, carry every other one through untouched.
+  const handleTrialChange = useCallback(async (next: GrowTrial) => {
+    if (!system?.grow) return;
+    const grow = {
+      ...system.grow,
+      trials: system.grow.trials.map(t => (t.id === next.id ? next : t)),
+    };
+    await setSystemPhase(system.id, system.phase || 'grow', { grow });
+  }, [system, setSystemPhase]);
+
+  const handleTrialRemove = useCallback(async (trial: GrowTrial) => {
+    if (!system?.grow) return;
+    if (!confirm(`Remove the ${trial.crop || 'trial'} trial?`)) return;
+    const grow = {
+      ...system.grow,
+      trials: system.grow.trials.filter(t => t.id !== trial.id),
+    };
+    await setSystemPhase(system.id, system.phase || 'grow', { grow });
+  }, [system, setSystemPhase]);
+
   if (!system) {
     return (
       <div className="min-h-screen bg-green-50/50">
@@ -719,6 +746,12 @@ export function SystemAnalysePage() {
       </div>
     );
   }
+
+  const growTrials = system.grow?.trials ?? [];
+  const showTrialsSection = system.phase === 'grow' || growTrials.length > 0;
+  const protocol = protocolProgress(growTrials);
+  const scrollToTrials = () =>
+    trialsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
     <div className="min-h-screen bg-green-50/50 pb-8">
@@ -775,6 +808,7 @@ export function SystemAnalysePage() {
           latestFbRatio={latestFbRatio}
           readOnly={isPublicView}
           onRate={handleRate}
+          onGrowingClick={showTrialsSection ? scrollToTrials : undefined}
         />
 
         {/* Composition + Build-start photos */}
@@ -1489,6 +1523,71 @@ export function SystemAnalysePage() {
           </div>
         </div>
 
+        {/* Growth Trials — the narrative step between "compost is ready" and
+            "here's what it grew". Rendered in grow phase or once trials exist. */}
+        {showTrialsSection && (
+          <div ref={trialsRef} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 scroll-mt-4">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <Sprout size={16} className="text-purple-600" />
+              <h3 className="font-semibold text-gray-900">Growth Trials</h3>
+              {!isPublicView && (
+                <button
+                  onClick={() => setShowAddTrial(true)}
+                  className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-600 text-white font-medium hover:bg-purple-700 transition-colors"
+                >
+                  <Plus size={12} />
+                  Add trial
+                </button>
+              )}
+            </div>
+
+            {/* Protocol progress — germination → broad bean → crop trials */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {protocol.map(stage => {
+                const running = stage.running ? trialStatus(stage.running) : null;
+                const isCrop = stage.def.id === 'crop';
+                const label = isCrop
+                  ? `${stage.def.short} (${stage.trials.length})`
+                  : `${stage.def.short} ${stage.done ? '✓' : '–'}`;
+                const tone = stage.done
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : running
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-gray-50 text-gray-500 border-gray-200';
+                return (
+                  <span
+                    key={stage.def.id}
+                    className={`text-xs px-2.5 py-1 rounded-full border ${tone}`}
+                    title={stage.def.hint}
+                  >
+                    {label}
+                    {running && <span className="ml-1 text-[10px] opacity-80">{running.shortLabel}</span>}
+                  </span>
+                );
+              })}
+            </div>
+
+            {growTrials.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">
+                No trials yet{isPublicView ? '' : ' — tap “Add trial” to start the 5-day germination test'}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {sortTrials(growTrials).map(t => (
+                  <TrialCard
+                    key={t.id}
+                    system={system}
+                    trial={t}
+                    readOnly={isPublicView}
+                    onChange={handleTrialChange}
+                    onRemove={isPublicView ? undefined : handleTrialRemove}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Soil + Harvest — data not tracked yet, placeholder cards on left */}
         <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-col justify-center">
@@ -1505,6 +1604,14 @@ export function SystemAnalysePage() {
         </div>
 
       </div>
+
+      {showAddTrial && !isPublicView && (
+        <PhaseModal
+          system={system}
+          mode="addTrial"
+          onClose={() => setShowAddTrial(false)}
+        />
+      )}
     </div>
   );
 }

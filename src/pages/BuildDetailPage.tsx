@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Hammer, CheckSquare, Square, Loader2, Package, ScanLine,
   Trash2, Plus, Palette, Pencil, RotateCw, Ruler, Save, Thermometer, Minus,
-  CalendarDays,
+  CalendarDays, CalendarClock,
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
@@ -12,7 +12,7 @@ import type { ScanOutcome } from '@/components/BinScanner';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
 import { calcVolumeLitres, formatVolume } from '@/utils/volume';
-import type { BuildShape, BuildDimensions } from '@/types';
+import type { BuildShape, BuildDimensions, MaturationInfo, GrowInfo } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ function colourBadge(colour: string): string {
 export function BuildDetailPage() {
   const navigate = useNavigate();
   const { systemId } = useParams<{ systemId: string }>();
-  const { getSystem, addToast, settings, updateSettings, updateCustomSystem, buildTypes, addBuildType } = useCompost();
+  const { getSystem, addToast, settings, updateSettings, updateCustomSystem, buildTypes, addBuildType, setSystemPhase } = useCompost();
 
   const system = systemId ? getSystem(systemId) : undefined;
 
@@ -123,6 +123,12 @@ export function BuildDetailPage() {
   const [buildDateOpen, setBuildDateOpen] = useState(false);
   const [buildDateInput, setBuildDateInput] = useState(system?.buildDate || ''); // YYYY-MM-DD
   const [savingBuildDate, setSavingBuildDate] = useState(false);
+
+  // Phase date editing (maturation / grow started)
+  const [phaseDatesOpen, setPhaseDatesOpen] = useState(false);
+  const [matStartInput, setMatStartInput] = useState(system?.maturation?.startedAt || '');
+  const [growStartInput, setGrowStartInput] = useState(system?.grow?.startedAt || '');
+  const [savingPhaseDates, setSavingPhaseDates] = useState(false);
 
   // Dimensions editing
   const [dimsOpen, setDimsOpen] = useState(false);
@@ -426,6 +432,56 @@ export function BuildDetailPage() {
     }
   }
 
+  // ── Save phase dates (maturation / grow started) ───────────────────────
+  // Patch-only: fields the user didn't change are left exactly as they were,
+  // and no transition note is written (this is a correction, not a move).
+  async function handleSavePhaseDates() {
+    if (!system || savingPhaseDates) return;
+
+    const mat = matStartInput.trim();
+    const grow = growStartInput.trim();
+    const valid = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+    if ((mat && !valid(mat)) || (grow && !valid(grow))) {
+      addToast('error', 'Pick valid dates first');
+      return;
+    }
+
+    const matChanged = mat !== (system.maturation?.startedAt || '');
+    const growChanged = grow !== (system.grow?.startedAt || '');
+    if (!matChanged && !growChanged) {
+      setPhaseDatesOpen(false);
+      return;
+    }
+
+    const patch: { maturation?: MaturationInfo; grow?: GrowInfo } = {};
+    if (matChanged && mat) {
+      patch.maturation = {
+        containerType: system.maturation?.containerType || '',
+        placement: system.maturation?.placement || '',
+        coverType: system.maturation?.coverType || '',
+        startedAt: mat,
+      };
+    }
+    if (growChanged && grow) {
+      patch.grow = {
+        startedAt: grow,
+        trials: system.grow?.trials ?? [],
+      };
+    }
+
+    setSavingPhaseDates(true);
+    try {
+      await setSystemPhase(system.id, system.phase || 'thermophilic', patch);
+      addToast('success', 'Phase dates saved');
+      setPhaseDatesOpen(false);
+    } catch (err) {
+      console.error('Save phase dates error:', err);
+      addToast('error', 'Failed to save the phase dates');
+    } finally {
+      setSavingPhaseDates(false);
+    }
+  }
+
   // ── Save dimensions ────────────────────────────────────────────────────
   async function handleSaveDimensions() {
     if (!system) return;
@@ -602,6 +658,24 @@ export function BuildDetailPage() {
               <CalendarDays size={14} />
               Build date
             </button>
+            {(system?.phase === 'maturation' || system?.phase === 'grow' || system?.maturation || system?.grow) && (
+              <button
+                onClick={() => {
+                  setPhaseDatesOpen(o => !o);
+                  setMatStartInput(system?.maturation?.startedAt || '');
+                  setGrowStartInput(system?.grow?.startedAt || '');
+                }}
+                disabled={loading || !!loadError}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                  phaseDatesOpen
+                    ? 'border-green-primary text-green-primary bg-green-50'
+                    : 'border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-700'
+                }`}
+              >
+                <CalendarClock size={14} />
+                Phase dates
+              </button>
+            )}
             <button
               onClick={() => setDimsOpen(o => !o)}
               disabled={loading || !!loadError}
@@ -727,6 +801,49 @@ export function BuildDetailPage() {
               >
                 <Save size={12} />
                 {savingBuildDate ? 'Saving…' : 'Save build date'}
+              </button>
+            </div>
+          )}
+
+          {/* Phase dates panel */}
+          {phaseDatesOpen && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+              <p className="text-xs text-gray-500 font-medium">Phase transition dates</p>
+              {(system?.phase === 'maturation' || system?.phase === 'grow' || system?.maturation) && (
+                <div>
+                  <label className="text-xs text-gray-400">Maturation started</label>
+                  <input
+                    type="date"
+                    value={matStartInput}
+                    max={getNZDate()}
+                    onChange={e => setMatStartInput(e.target.value)}
+                    className="w-full mt-0.5 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:border-green-primary outline-none"
+                  />
+                </div>
+              )}
+              {(system?.phase === 'grow' || system?.grow) && (
+                <div>
+                  <label className="text-xs text-gray-400">Grow phase started</label>
+                  <input
+                    type="date"
+                    value={growStartInput}
+                    max={getNZDate()}
+                    onChange={e => setGrowStartInput(e.target.value)}
+                    className="w-full mt-0.5 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:border-green-primary outline-none"
+                  />
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400 leading-tight">
+                These drive the "days to maturation" vitals tile and the maturation
+                reference line on the temperature chart.
+              </p>
+              <button
+                onClick={handleSavePhaseDates}
+                disabled={savingPhaseDates}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-primary text-white font-medium disabled:opacity-50"
+              >
+                <Save size={12} />
+                {savingPhaseDates ? 'Saving…' : 'Save phase dates'}
               </button>
             </div>
           )}

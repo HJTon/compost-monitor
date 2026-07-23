@@ -11,9 +11,18 @@ interface PhotoSlotProps {
   heightClass?: string;
   printMode?: boolean;
   hideLabel?: boolean;
+  /** Public view — photos still render, but nothing can be added or edited */
+  readOnly?: boolean;
+  /**
+   * Canonical tag applied to uploads. Defaults to the slot id — override for
+   * dynamic slots (e.g. per-trial slots use slot id `trial-<id>`, tag `trial`).
+   */
+  defaultTag?: string;
 }
 
-export function PhotoSlot({ slot, systemName, items, onChange, heightClass, printMode, hideLabel }: PhotoSlotProps) {
+export function PhotoSlot({
+  slot, systemName, items, onChange, heightClass, printMode, hideLabel, readOnly, defaultTag,
+}: PhotoSlotProps) {
   const [picking, setPicking] = useState(false);
 
   async function handlePick(files: DriveFile[], meta?: { tags?: string[] }) {
@@ -34,7 +43,7 @@ export function PhotoSlot({ slot, systemName, items, onChange, heightClass, prin
     }
 
     // Merge the slot's default tag with any user-picked tags — dedup + lowercase
-    const tagSet = new Set<string>([slot.id, ...(meta?.tags || [])].map(t => t.trim().toLowerCase()).filter(Boolean));
+    const tagSet = new Set<string>([defaultTag || slot.id, ...(meta?.tags || [])].map(t => t.trim().toLowerCase()).filter(Boolean));
     const tagsCsv = [...tagSet].join(',');
 
     const toAdd = slot.kind === 'single' ? files.slice(0, 1) : files;
@@ -153,22 +162,23 @@ export function PhotoSlot({ slot, systemName, items, onChange, heightClass, prin
         heightClass={heightClass || (singleSlot ? 'h-72 md:h-[28rem]' : 'h-56 md:h-80')}
         singleSlot={singleSlot}
         printMode={printMode}
+        readOnly={readOnly}
         onAdd={() => setPicking(true)}
-        onReplace={singleSlot ? () => setPicking(true) : undefined}
-        onRemove={printMode ? undefined : handleRemove}
-        onCaptionChange={printMode ? undefined : handleCaption}
-        onTransformChange={printMode ? undefined : handleTransform}
-        onEventDateChange={printMode ? undefined : handleEventDate}
-        onTagsChange={printMode ? undefined : handleTags}
+        onReplace={singleSlot && !readOnly ? () => setPicking(true) : undefined}
+        onRemove={printMode || readOnly ? undefined : handleRemove}
+        onCaptionChange={printMode || readOnly ? undefined : handleCaption}
+        onTransformChange={printMode || readOnly ? undefined : handleTransform}
+        onEventDateChange={printMode || readOnly ? undefined : handleEventDate}
+        onTagsChange={printMode || readOnly ? undefined : handleTags}
       />
       </div>
 
-      {picking && (
+      {picking && !readOnly && (
         <DrivePicker
           systemName={systemName}
           slotLabel={slot.label}
           allowMultiple={!singleSlot}
-          defaultTag={slot.id}
+          defaultTag={defaultTag || slot.id}
           onClose={() => setPicking(false)}
           onPick={handlePick}
         />
