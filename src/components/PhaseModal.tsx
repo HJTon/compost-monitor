@@ -6,8 +6,6 @@ import {
   DEFAULT_CONTAINER_TYPES,
   DEFAULT_PLACEMENTS,
   DEFAULT_COVER_TYPES,
-  DEFAULT_TRIAL_METHODS,
-  DEFAULT_TRIAL_CROPS,
   getNZDate,
   generateId,
 } from '@/utils/config';
@@ -25,7 +23,16 @@ interface Props {
 }
 
 export function PhaseModal({ system, mode, onClose }: Props) {
-  const { settings, updateSettings, setSystemPhase, addToast } = useCompost();
+  const {
+    settings,
+    updateSettings,
+    setSystemPhase,
+    addToast,
+    trialMethods,
+    trialCrops,
+    addTrialMethod,
+    addTrialCrop,
+  } = useCompost();
 
   // Maturation state
   const [containerType, setContainerType] = useState(system.maturation?.containerType || '');
@@ -61,8 +68,9 @@ export function PhaseModal({ system, mode, onClose }: Props) {
   const containerOptions = [...DEFAULT_CONTAINER_TYPES, ...(settings.customContainerTypes || [])];
   const placementOptions = [...DEFAULT_PLACEMENTS, ...(settings.customPlacements || [])];
   const coverOptions = [...DEFAULT_COVER_TYPES, ...(settings.customCoverTypes || [])];
-  const methodOptions = [...DEFAULT_TRIAL_METHODS, ...(settings.customTrialMethods || [])];
-  const cropOptions = [...DEFAULT_TRIAL_CROPS, ...(settings.customTrialCrops || [])];
+  // Trial methods/crops are shared across devices via the Google Sheet.
+  const methodOptions = trialMethods;
+  const cropOptions = trialCrops;
 
   const addCustom = (key: keyof typeof settings, value: string) =>
     updateSettings({ [key]: [...((settings[key] as string[] | undefined) || []), value] });
@@ -279,14 +287,14 @@ export function PhaseModal({ system, mode, onClose }: Props) {
                 value={method}
                 options={methodOptions}
                 onChange={setMethod}
-                onAddOption={v => addCustom('customTrialMethods', v)}
+                onAddOption={addTrialMethod}
               />
               <EditableSelect
                 label="Crop"
                 value={crop}
                 options={cropOptions}
                 onChange={setCrop}
-                onAddOption={v => addCustom('customTrialCrops', v)}
+                onAddOption={addTrialCrop}
               />
               <div>
                 <label className="text-xs font-medium text-gray-500 block mb-1">Notes (optional)</label>

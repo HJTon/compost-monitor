@@ -18,7 +18,16 @@ import {
   deleteBusiness as dbDeleteBusiness,
 } from '@/services/db';
 import { processSyncQueue, getPendingCount, queueEntrySync } from '@/services/syncService';
-import { DEFAULT_SETTINGS, DEFAULT_BUILD_TYPES, generateId, getNZDate, getNZTime, COMPOST_SYSTEMS } from '@/utils/config';
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_BUILD_TYPES,
+  DEFAULT_TRIAL_METHODS,
+  DEFAULT_TRIAL_CROPS,
+  generateId,
+  getNZDate,
+  getNZTime,
+  COMPOST_SYSTEMS,
+} from '@/utils/config';
 
 interface CompostContextType {
   entries: DailyEntry[];
@@ -65,11 +74,34 @@ interface CompostContextType {
   buildTypes: string[];
   addBuildType: (name: string) => Promise<void>;
 
+  // Grow-trial options (shared across all devices via Google Sheet)
+  trialMethods: string[];
+  trialCrops: string[];
+  addTrialMethod: (name: string) => Promise<void>;
+  addTrialCrop: (name: string) => Promise<void>;
+
   // Refresh
   refreshEntries: () => Promise<void>;
 }
 
 const CompostContext = createContext<CompostContextType | null>(null);
+
+/**
+ * Append `extra` to `base`, skipping case-insensitive duplicates and keeping
+ * the first-seen spelling. Used to fold a device's locally-added trial
+ * options into the shared list without ever dropping one.
+ */
+function mergeUnique(base: string[], extra: string[]): string[] {
+  const seen = new Set(base.map(v => v.toLowerCase()));
+  const out = [...base];
+  for (const v of extra) {
+    const key = v.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v.trim());
+  }
+  return out;
+}
 
 export function CompostProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<DailyEntry[]>([]);
@@ -81,6 +113,8 @@ export function CompostProvider({ children }: { children: ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [buildTypes, setBuildTypes] = useState<string[]>(DEFAULT_BUILD_TYPES);
+  const [trialMethods, setTrialMethods] = useState<string[]>(DEFAULT_TRIAL_METHODS);
+  const [trialCrops, setTrialCrops] = useState<string[]>(DEFAULT_TRIAL_CROPS);
 
   // Merge hardcoded + custom so fields saved via Manage (buildType, dimensions,
   // mulchBins, etc.) augment the hardcoded 11 systems. Custom entries with IDs
@@ -467,6 +501,130 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     }
   }, [addToast]);
 
+  // Fetch shared grow-trial methods/crops from the Google Sheet on mount.
+  //
+  // These used to live only in per-device settings, so a crop Caroline added on
+  // her tablet didn't exist anywhere else. The sheet is now the shared list; any
+  // locally-stored customs are merged in (so nothing added offline disappears
+  // from that device's own dropdown) and pushed up so everyone else gets them.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTrialOptions() {
+      const stored = await getSettings();
+      const localMethods = stored.customTrialMethods || [];
+      const localCrops = stored.customTrialCrops || [];
+
+      if (!navigator.onLine) {
+        if (!cancelled) {
+          setTrialMethods(prev => mergeUnique(prev, localMethods));
+          setTrialCrops(prev => mergeUnique(prev, localCrops));
+        }
+        return;
+      }
+
+      let sheetMethods: string[] = [];
+      let sheetCrops: string[] = [];
+      try {
+        const res = await fetch('/.netlify/functions/compost-trial-options');
+        if (!res.ok) return;
+        const data = await res.json();
+        sheetMethods = Array.isArray(data?.methods) ? data.methods : [];
+        sheetCrops = Array.isArray(data?.crops) ? data.crops : [];
+      } catch {
+        // Offline / function unavailable — keep defaults + local customs
+        if (!cancelled) {
+          setTrialMethods(prev => mergeUnique(prev, localMethods));
+          setTrialCrops(prev => mergeUnique(prev, localCrops));
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        if (sheetMethods.length > 0) setTrialMethods(mergeUnique(sheetMethods, localMethods));
+        if (sheetCrops.length > 0) setTrialCrops(mergeUnique(sheetCrops, localCrops));
+      }
+
+      // Push local-only customs up so other devices see them next time.
+      // Sequential (not Promise.all) so parallel appends can't race on the
+      // same tab. Failures are ignored — retried on the next app open.
+      const pushUp = async (kind: 'method' | 'crop', local: string[], sheet: string[]) => {
+        const known = new Set(sheet.map(v => v.toLowerCase()));
+        for (const name of local) {
+          const trimmed = name.trim();
+          if (!trimmed || known.has(trimmed.toLowerCase())) continue;
+          known.add(trimmed.toLowerCase());
+          try {
+            await fetch('/.netlify/functions/compost-trial-options', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind, name: trimmed }),
+            });
+          } catch {
+            // offline retry on next open
+          }
+        }
+      };
+      await pushUp('method', localMethods, sheetMethods);
+      await pushUp('crop', localCrops, sheetCrops);
+    }
+
+    loadTrialOptions();
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Add a trial method or crop: optimistic local update, POST to the shared
+   * sheet, adopt the returned list on success. On failure the value is kept
+   * locally AND written to settings so it survives a reload and gets pushed up
+   * on a later app open.
+   */
+  const addTrialOption = useCallback(async (kind: 'method' | 'crop', name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const setLocal = kind === 'method' ? setTrialMethods : setTrialCrops;
+    setLocal(prev => mergeUnique(prev, [trimmed]));
+
+    try {
+      const res = await fetch('/.netlify/functions/compost-trial-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, name: trimmed }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // Adopt the sheet's list, but keep any local-only values still waiting to
+      // be pushed up so they don't vanish from this device's dropdown.
+      if (Array.isArray(data?.methods) && data.methods.length > 0) {
+        setTrialMethods(prev => mergeUnique(data.methods as string[], prev));
+      }
+      if (Array.isArray(data?.crops) && data.crops.length > 0) {
+        setTrialCrops(prev => mergeUnique(data.crops as string[], prev));
+      }
+    } catch (err) {
+      console.warn('Could not sync trial option to sheet:', err);
+      // Persist to per-device settings so the value survives a reload and can
+      // reach the sheet on a later attempt. Read fresh from IndexedDB rather
+      // than the settings state so a concurrent update can't clobber it.
+      const key = kind === 'method' ? 'customTrialMethods' : 'customTrialCrops';
+      try {
+        const current = await getSettings();
+        const existing = current[key] || [];
+        if (!existing.some(v => v.toLowerCase() === trimmed.toLowerCase())) {
+          const next: AppSettings = { ...current, [key]: [...existing, trimmed] };
+          await dbSaveSettings(next);
+          setSettings(next);
+        }
+      } catch (dbErr) {
+        console.warn('Could not store trial option locally:', dbErr);
+      }
+      addToast('error', `Could not save new ${kind} — saved on this device, will retry when online`);
+    }
+  }, [addToast]);
+
+  const addTrialMethod = useCallback((name: string) => addTrialOption('method', name), [addTrialOption]);
+  const addTrialCrop = useCallback((name: string) => addTrialOption('crop', name), [addTrialOption]);
+
   // Auto-sync when coming online
   useEffect(() => {
     if (isOnline && pendingCount > 0) {
@@ -804,6 +962,10 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         refreshBusinesses,
         buildTypes,
         addBuildType,
+        trialMethods,
+        trialCrops,
+        addTrialMethod,
+        addTrialCrop,
         refreshEntries,
       }}
     >

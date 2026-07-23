@@ -3,11 +3,7 @@ import { ChevronDown, ChevronRight, Save, Trash2, CheckCircle2 } from 'lucide-re
 import { EditableSelect } from './EditableSelect';
 import { InlinePhotoSlot } from './InlinePhotoSlot';
 import { useCompost } from '@/contexts/CompostContext';
-import {
-  DEFAULT_TRIAL_METHODS,
-  DEFAULT_TRIAL_CROPS,
-  getNZDate,
-} from '@/utils/config';
+import { getNZDate } from '@/utils/config';
 import {
   TRIAL_TYPES,
   TRIAL_TYPE_BADGE,
@@ -38,7 +34,7 @@ interface TrialCardProps {
  * expanded it's a full editor with dates, result and per-trial photos.
  */
 export function TrialCard({ system, trial, readOnly, onChange, onRemove, defaultExpanded }: TrialCardProps) {
-  const { settings, updateSettings, addToast } = useCompost();
+  const { addToast, trialMethods, trialCrops, addTrialMethod, addTrialCrop } = useCompost();
   const [expanded, setExpanded] = useState(!!defaultExpanded);
 
   // Draft state — only pushed to the parent on Save so a half-edited card
@@ -73,11 +69,9 @@ export function TrialCard({ system, trial, readOnly, onChange, onRemove, default
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trialSignature]);
 
-  const methodOptions = [...DEFAULT_TRIAL_METHODS, ...(settings.customTrialMethods || [])];
-  const cropOptions = [...DEFAULT_TRIAL_CROPS, ...(settings.customTrialCrops || [])];
-
-  const addCustom = (key: 'customTrialMethods' | 'customTrialCrops', value: string) =>
-    updateSettings({ [key]: [...((settings[key] as string[] | undefined) || []), value] });
+  // Shared across devices via the Trial Methods / Trial Crops sheet tabs.
+  const methodOptions = trialMethods;
+  const cropOptions = trialCrops;
 
   const status = trialStatus(trial);
   const def = trialTypeDef(trialTypeOf(trial));
@@ -224,14 +218,14 @@ export function TrialCard({ system, trial, readOnly, onChange, onRemove, default
                 value={method}
                 options={methodOptions}
                 onChange={setMethod}
-                onAddOption={v => addCustom('customTrialMethods', v)}
+                onAddOption={addTrialMethod}
               />
               <EditableSelect
                 label="Crop"
                 value={crop}
                 options={cropOptions}
                 onChange={setCrop}
-                onAddOption={v => addCustom('customTrialCrops', v)}
+                onAddOption={addTrialCrop}
               />
 
               <div className="grid grid-cols-2 gap-2">
