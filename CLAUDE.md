@@ -330,6 +330,31 @@ shows a tip, never a block.
   slot column is free text, so no backend change was needed.
 - `ComparePage` renders a trials grid (one row per build, columns by stage) below the
   readiness comparison, entirely from `allSystems` — no extra fetches.
+- `TrialsDueCard` (Dashboard) and `TrialProtocolOverview` (`/analyse` index) are read-only
+  summaries over the same client-side data. The Dashboard hides grow-phase builds from its
+  main list, which is why the due card exists at all.
+- Trial **methods and crops** are shared across devices via the `Trial Methods` / `Trial Crops`
+  tabs (`compost-trial-options.ts`), following the `compost-build-types.ts` pattern. The
+  maturation dropdowns (container / placement / cover) are still per-device settings.
+
+## Shared-tab gotcha: first row wins
+
+`compost-build-info.ts` and `compost-build-phase.ts` both UPDATE the **first** row whose
+column A matches the system name. Any client-side lookup over their rows must therefore
+resolve to the first match too — building a plain `new Map(rows.map(r => [r.system, r]))`
+keeps the LAST duplicate, so values get written to one row and read back from another. Both
+lookups in `CompostContext` are explicitly first-wins; keep them that way.
+
+`compost-build-info-dedupe.ts` is the idempotent cleanup for duplicate rows (supports
+`?dryRun=1`). It merges a group into its first row, taking the first non-empty value per
+column and the newest `UpdatedAt`, then deletes the rest.
+
+## Build dates
+
+`/manage/build-dates` (`BuildDatesPage`) is the bulk sweep for setting `buildDate` across
+builds, suggesting the earliest batching date from each build's bins. The save path lives in
+`src/utils/buildDate.ts` (`persistBuildDate`) and is shared with `BuildDetailPage` — change it
+there, not in either page.
 
 ---
 
