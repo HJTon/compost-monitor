@@ -201,8 +201,15 @@ export function CompostProvider({ children }: { children: ReactNode }) {
             const data = await res.json();
             const phases: Array<{ system: string; phase: string; maturation: unknown; grow: unknown }> = data.phases || [];
             if (phases.length > 0) {
-              // Merge phase data into custom systems (keyed by system name)
-              const byName = new Map(phases.map(p => [p.system, p]));
+              // Merge phase data into custom systems (keyed by system name).
+              // First occurrence wins: compost-build-phase's POST updates the
+              // first matching row, so reads must resolve to that same row. A
+              // plain Map would keep the LAST duplicate and silently read back
+              // a different row than the one being written.
+              const byName = new Map<string, (typeof phases)[number]>();
+              for (const p of phases) {
+                if (!byName.has(p.system)) byName.set(p.system, p);
+              }
               const updated: CompostSystem[] = [];
               // Hardcoded + already-stored systems may need phase data merged in
               const knownSystems = [...COMPOST_SYSTEMS, ...cleanCustomSystems];
@@ -253,7 +260,20 @@ export function CompostProvider({ children }: { children: ReactNode }) {
               buildDate?: string;
               performanceRating?: number | null;
             }> = data.infos || [];
-            const byName = new Map(infos.map(i => [i.system, i]));
+            // FIRST occurrence wins, deliberately.
+            //
+            // The Build Info tab can contain duplicate rows for the same system
+            // (historic bug). The POST handler in compost-build-info.ts scans
+            // from the top and updates the FIRST matching row, so the read path
+            // must resolve to the first row too. Building this with
+            // `new Map(infos.map(i => [i.system, i]))` makes the LAST duplicate
+            // win — then a value saved on one device is written to the first row
+            // but read back from the last, and never propagates. Don't
+            // "simplify" it back.
+            const byName = new Map<string, (typeof infos)[number]>();
+            for (const info of infos) {
+              if (!byName.has(info.system)) byName.set(info.system, info);
+            }
             const knownSystems = [...COMPOST_SYSTEMS, ...cleanCustomSystems];
             const customById = new Map(cleanCustomSystems.map(s => [s.id, s]));
 
