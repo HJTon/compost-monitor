@@ -2,16 +2,102 @@ import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
 // ─── Composition weights ──────────────────────────────────────────────────────
-// 3:2:1 ratio for primary : secondary : tertiary source.
-// When fill-level data is available in future, replace these static weights
-// with actual fill proportions per bin and the rest of the logic stays the same.
+// Fallback only. Rows written before 2026-08-13 record which businesses fed a
+// bin but not how much each contributed, so their share is estimated from the
+// order the names happen to sit in — "first listed contributed most". That
+// order is an artefact of the sequence things were assigned at the farm, not a
+// measurement, which is why measured rows are preferred wherever they exist.
 const CONTENT_WEIGHTS = [5, 4, 3, 2, 1];
 
 function getWeightsForSources(count: number): number[] {
   if (count === 0) return [];
-  const weights = CONTENT_WEIGHTS.slice(0, count);
+  // Rows can now carry more than 5 sources (col M overflow). Anything past the
+  // declared ratio gets the smallest weight, and the whole set is normalised,
+  // so a row always contributes exactly 1 regardless of how many fed it.
+  const weights = Array.from(
+    { length: count },
+    (_, i) => CONTENT_WEIGHTS[i] ?? CONTENT_WEIGHTS[CONTENT_WEIGHTS.length - 1]
+  );
   const total = weights.reduce((a, b) => a + b, 0);
   return weights.map(w => w / total);
+}
+
+// ─── Bin Tracker columns ──────────────────────────────────────────────────────
+// Resolved from the header row where possible. Both apps have historically
+// addressed this tab by fixed position, and a column inserted in April 2026
+// silently corrupted every collector write until it was backfilled — so the
+// positions below are a fallback, not the primary lookup.
+const FALLBACK_COLS = {
+  sources: [1, 2, 3, 4, 5],
+  buildName: 10,
+  overflowSources: 12,
+  breakdownJson: 13,
+};
+
+function resolveColumns(header: string[]) {
+  const norm = header.map(h => (h || '').toString().trim().toLowerCase());
+  const findIdx = (match: (h: string) => boolean, fallback: number) => {
+    const i = norm.findIndex(match);
+    return i === -1 ? fallback : i;
+  };
+
+  const sources = norm.reduce<number[]>((acc, h, i) => {
+    if (h === 'content from') acc.push(i);
+    return acc;
+  }, []);
+
+  return {
+    sources: sources.length > 0 ? sources : FALLBACK_COLS.sources,
+    buildName: findIdx(h => h === 'batch', FALLBACK_COLS.buildName),
+    overflowSources: findIdx(h => h.startsWith('content from 6'), FALLBACK_COLS.overflowSources),
+    breakdownJson: findIdx(h => h.startsWith('source breakdown'), FALLBACK_COLS.breakdownJson),
+  };
+}
+
+interface BreakdownEntry {
+  name: string;
+  bins?: number;
+  buckets?: number;
+  litres?: number;
+}
+
+/**
+ * Measured share of one bin, by volume — a quarter-full bucket should not
+ * count the same as a full wheelie bin.
+ *
+ * Returns weights summing to 1 so a measured row contributes exactly as much
+ * to the build as an estimated one. Only the split *within* the row changes;
+ * every bin still counts equally toward the pile, which is what the estimated
+ * path has always done.
+ */
+function weightsFromBreakdown(raw: string): Array<{ name: string; weight: number }> | null {
+  if (!raw || !raw.trim()) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+  const entries = (parsed as BreakdownEntry[]).filter(
+    e => e && typeof e.name === 'string' && e.name.trim() !== ''
+  );
+  if (entries.length === 0) return null;
+
+  const totalLitres = entries.reduce((sum, e) => sum + (Number(e.litres) || 0), 0);
+
+  // Everything recorded as empty (all bins at 0% fullness) — we still know the
+  // true source list, so split evenly rather than falling back to the guess.
+  if (totalLitres <= 0) {
+    return entries.map(e => ({ name: e.name, weight: 1 / entries.length }));
+  }
+
+  return entries.map(e => ({
+    name: e.name,
+    weight: (Number(e.litres) || 0) / totalLitres,
+  }));
 }
 
 // ─── Google Sheets client ─────────────────────────────────────────────────────
@@ -62,30 +148,59 @@ export default async (request: Request, _context: Context) => {
     });
 
     const rows = response.data.values || [];
+    const cols = resolveColumns(rows[0] || []);
     const dataRows = rows.slice(1); // skip header
 
     // Accumulate weighted source contributions for this system
     // sourceTotals: { [sourceName]: totalWeight }
     const sourceTotals: Record<string, number> = {};
     let binCount = 0;
+    let measuredBins = 0;
+    let estimatedBins = 0;
 
     for (const row of dataRows) {
-      const rowSystem = (row[10] || '').toString().trim();
+      const rowSystem = (row[cols.buildName] || '').toString().trim();
       if (rowSystem.toLowerCase() !== systemName.trim().toLowerCase()) continue;
 
-      // Collect non-empty content sources from columns B–F (indices 1–5)
-      const sources: string[] = [row[1], row[2], row[3], row[4], row[5]]
-        .map(v => (v || '').toString().trim())
+      // Preferred: the per-source breakdown the collector app writes, which
+      // knows how many bins/buckets each business contributed and how full
+      // they were.
+      const measured = weightsFromBreakdown((row[cols.breakdownJson] || '').toString());
+
+      if (measured) {
+        binCount++;
+        measuredBins++;
+        measured.forEach(({ name, weight }) => {
+          const key = normaliseSource(name);
+          sourceTotals[key] = (sourceTotals[key] || 0) + weight;
+        });
+        continue;
+      }
+
+      // Fallback for rows without a breakdown: the "Content from" columns,
+      // plus any overflow names that used to be dropped entirely.
+      const overflow = (row[cols.overflowSources] || '')
+        .toString()
+        .split(',')
+        .map(v => v.trim())
         .filter(v => v !== '');
+
+      const sources: string[] = [
+        ...cols.sources.map(i => (row[i] || '').toString().trim()),
+        ...overflow,
+      ].filter(v => v !== '');
 
       if (sources.length === 0) continue;
 
       const weights = getWeightsForSources(sources.length);
       binCount++;
+      estimatedBins++;
 
       sources.forEach((source, i) => {
         // Normalise common variants
         const name = normaliseSource(source);
+        // getWeightsForSources only defines weights for the first 5; anything
+        // beyond that gets the smallest weight rather than undefined.
         sourceTotals[name] = (sourceTotals[name] || 0) + weights[i];
       });
     }
@@ -109,6 +224,10 @@ export default async (request: Request, _context: Context) => {
       binCount,
       composition,
       weights: CONTENT_WEIGHTS, // expose weights so UI can show methodology
+      // How much of this build's composition is measured vs estimated from the
+      // positional guess. Bins recorded before 2026-08-13 have no breakdown.
+      measuredBins,
+      estimatedBins,
     }), {
       status: 200,
       headers: {
