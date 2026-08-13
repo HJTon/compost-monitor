@@ -59,6 +59,10 @@ interface BreakdownEntry {
   bins?: number;
   buckets?: number;
   litres?: number;
+  // Set on rows reconstructed after the fact rather than recorded at the farm
+  // (see the 7 May 2026 backfill). The volumes are still the best split we
+  // have and are used as such — they just must not be reported as measured.
+  estimated?: boolean;
 }
 
 /**
@@ -69,8 +73,13 @@ interface BreakdownEntry {
  * to the build as an estimated one. Only the split *within* the row changes;
  * every bin still counts equally toward the pile, which is what the estimated
  * path has always done.
+ *
+ * `estimated` is true when any entry in the row carries the flag, so a
+ * reconstructed row still gets its volume split but is counted honestly.
  */
-function weightsFromBreakdown(raw: string): Array<{ name: string; weight: number }> | null {
+function weightsFromBreakdown(
+  raw: string
+): { weights: Array<{ name: string; weight: number }>; estimated: boolean } | null {
   if (!raw || !raw.trim()) return null;
 
   let parsed: unknown;
@@ -86,18 +95,25 @@ function weightsFromBreakdown(raw: string): Array<{ name: string; weight: number
   );
   if (entries.length === 0) return null;
 
+  const estimated = entries.some(e => e.estimated === true);
   const totalLitres = entries.reduce((sum, e) => sum + (Number(e.litres) || 0), 0);
 
   // Everything recorded as empty (all bins at 0% fullness) — we still know the
   // true source list, so split evenly rather than falling back to the guess.
   if (totalLitres <= 0) {
-    return entries.map(e => ({ name: e.name, weight: 1 / entries.length }));
+    return {
+      weights: entries.map(e => ({ name: e.name, weight: 1 / entries.length })),
+      estimated,
+    };
   }
 
-  return entries.map(e => ({
-    name: e.name,
-    weight: (Number(e.litres) || 0) / totalLitres,
-  }));
+  return {
+    weights: entries.map(e => ({
+      name: e.name,
+      weight: (Number(e.litres) || 0) / totalLitres,
+    })),
+    estimated,
+  };
 }
 
 // ─── Google Sheets client ─────────────────────────────────────────────────────
@@ -165,12 +181,13 @@ export default async (request: Request, _context: Context) => {
       // Preferred: the per-source breakdown the collector app writes, which
       // knows how many bins/buckets each business contributed and how full
       // they were.
-      const measured = weightsFromBreakdown((row[cols.breakdownJson] || '').toString());
+      const breakdown = weightsFromBreakdown((row[cols.breakdownJson] || '').toString());
 
-      if (measured) {
+      if (breakdown) {
         binCount++;
-        measuredBins++;
-        measured.forEach(({ name, weight }) => {
+        if (breakdown.estimated) estimatedBins++;
+        else measuredBins++;
+        breakdown.weights.forEach(({ name, weight }) => {
           const key = normaliseSource(name);
           sourceTotals[key] = (sourceTotals[key] || 0) + weight;
         });
@@ -224,8 +241,10 @@ export default async (request: Request, _context: Context) => {
       binCount,
       composition,
       weights: CONTENT_WEIGHTS, // expose weights so UI can show methodology
-      // How much of this build's composition is measured vs estimated from the
-      // positional guess. Bins recorded before 2026-08-13 have no breakdown.
+      // How much of this build's composition is measured vs estimated. Bins
+      // recorded before 2026-08-13 have no breakdown and fall back to the
+      // positional guess; reconstructed rows carry a volume breakdown but are
+      // flagged `estimated` and counted here, not as measured.
       measuredBins,
       estimatedBins,
     }), {
