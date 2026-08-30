@@ -18,9 +18,10 @@ const HEADERS = [
   'Controls',     // F  JSON: [{ id, label, measurements }]
   'Notes',        // G
   'UpdatedAt',    // H  ISO timestamp
+  'Settings',     // I  JSON: { potsPerTreatment, observationDates, sizeBands, passThresholdPct }
 ];
-const RANGE = `'${TAB}'!A:H`;
-const HEADER_RANGE = `'${TAB}'!A1:H1`;
+const RANGE = `'${TAB}'!A:I`;
+const HEADER_RANGE = `'${TAB}'!A1:I1`;
 
 function getSheetsClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY || '{}');
@@ -73,11 +74,24 @@ async function ensureTabAndHeaders(
 /** Measured values keyed by field id from `src/utils/trialFields.ts`. */
 type Measurements = Record<string, number | string | boolean | null>;
 
+/** One replicate pot — see `TrialPot` in src/types. */
+interface TrialPot {
+  pot: number;
+  seedsSown?: number | null;
+  counts?: Array<{ date: string; count: number }>;
+  measurements?: Measurements;
+  notes?: string;
+}
+
 interface TrialControl {
   id: string;
   label: string;
   measurements: Measurements;
+  pots?: TrialPot[];
 }
+
+/** Per-run protocol settings — see `TrialRunSettings` in src/types. */
+type TrialRunSettings = Record<string, unknown>;
 
 interface TrialRun {
   runId: string;
@@ -88,6 +102,7 @@ interface TrialRun {
   controls: TrialControl[];
   notes: string;
   updatedAt: string;
+  settings: TrialRunSettings | null;
 }
 
 function parseNumber(raw: string | undefined): number | null {
@@ -124,9 +139,58 @@ function parseControls(raw: string | undefined): TrialControl[] {
       id,
       label: typeof c.label === 'string' ? c.label : id,
       measurements,
+      ...(Array.isArray(c.pots) ? { pots: parsePots(c.pots) } : {}),
     });
   }
   return out;
+}
+
+/**
+ * Replicate pots on a control. Same rule as the controls themselves: a pot
+ * without a usable number is dropped rather than allowed to corrupt the run.
+ */
+function parsePots(raw: unknown[]): TrialPot[] {
+  const out: TrialPot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const p = item as Record<string, unknown>;
+    const pot = Number(p.pot);
+    if (!Number.isFinite(pot)) continue;
+    const counts = Array.isArray(p.counts)
+      ? p.counts
+          .filter((c): c is { date: string; count: number } =>
+            !!c && typeof c === 'object'
+            && typeof (c as Record<string, unknown>).date === 'string'
+            && Number.isFinite(Number((c as Record<string, unknown>).count)))
+          .map(c => ({ date: c.date, count: Number(c.count) }))
+      : [];
+    out.push({
+      pot,
+      seedsSown: p.seedsSown === null || p.seedsSown === undefined ? null : Number(p.seedsSown),
+      counts,
+      measurements: (p.measurements && typeof p.measurements === 'object' && !Array.isArray(p.measurements))
+        ? p.measurements as Measurements
+        : {},
+      ...(typeof p.notes === 'string' && p.notes ? { notes: p.notes } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Run settings from their JSON cell. Like `parseControls`, a hand-edit that
+ * breaks the JSON must degrade to "no settings" rather than fail the read —
+ * the run's own columns are still perfectly good.
+ */
+function parseSettings(raw: string | undefined): TrialRunSettings | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as TrialRunSettings;
+  } catch {
+    return null;
+  }
 }
 
 function parseRow(r: string[]): TrialRun {
@@ -139,6 +203,7 @@ function parseRow(r: string[]): TrialRun {
     controls: parseControls(r[5]),
     notes: r[6] || '',
     updatedAt: r[7] || '',
+    settings: parseSettings(r[8]),
   };
 }
 
@@ -157,13 +222,14 @@ function buildRow(run: TrialRun): string[] {
     run.controls.length > 0 ? JSON.stringify(run.controls) : '',
     run.notes,
     run.updatedAt,
+    run.settings ? JSON.stringify(run.settings) : '',
   ];
 }
 
 function blankRun(runId: string): TrialRun {
   return {
     runId, type: '', startDate: '', plannedDays: null, seedsSown: null,
-    controls: [], notes: '', updatedAt: '',
+    controls: [], notes: '', updatedAt: '', settings: null,
   };
 }
 
@@ -259,13 +325,19 @@ export default async (request: Request, _context: Context) => {
           : existing.controls,
         notes: body.notes !== undefined ? String(body.notes) : existing.notes,
         updatedAt: new Date().toISOString(),
+        // Settings merge KEY BY KEY, never wholesale. A client that only knows
+        // about `passThresholdPct` must not blank the observation dates a newer
+        // client wrote — the same trap `compost-build-phase` fell into.
+        settings: body.settings !== undefined && body.settings !== null
+          ? { ...(existing.settings || {}), ...(body.settings as TrialRunSettings) }
+          : existing.settings,
       };
 
       const row = buildRow(merged);
       if (foundIndex >= 0) {
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: `'${TAB}'!A${foundIndex + 1}:H${foundIndex + 1}`,
+          range: `'${TAB}'!A${foundIndex + 1}:I${foundIndex + 1}`,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [row] },
         });

@@ -29,7 +29,7 @@ import {
   COMPOST_SYSTEMS,
 } from '@/utils/config';
 
-interface CompostContextType {
+export interface CompostContextType {
   entries: DailyEntry[];
   settings: AppSettings;
   isOnline: boolean;
@@ -89,7 +89,13 @@ interface CompostContextType {
   refreshEntries: () => Promise<void>;
 }
 
-const CompostContext = createContext<CompostContextType | null>(null);
+/**
+ * Exported so a sandbox can supply a stand-in value. The real provider is
+ * still the only thing that talks to IndexedDB or the sheet — see
+ * `SandboxProvider`, which wraps this value and swaps the trial pieces for
+ * in-memory ones.
+ */
+export const CompostContext = createContext<CompostContextType | null>(null);
 
 /**
  * Append `extra` to `base`, skipping case-insensitive duplicates and keeping

@@ -57,10 +57,48 @@ export interface GrowTrial {
   measurements?: Record<string, number | string | boolean | null>;
   /** Visual observation ids that applied, e.g. ['chlorosis', 'wilting']. */
   observations?: string[];
+  /**
+   * Replicate pots. Present once this trial has been taken to pot level;
+   * absent on every trial recorded before that, which keep using
+   * `measurements` + `replicates` as a single aggregate row.
+   */
+  pots?: TrialPot[];
 }
 
 /** Measured values keyed by field id from `TRIAL_FIELDS` (src/utils/trialFields.ts). */
 export type TrialMeasurements = Record<string, number | string | boolean | null>;
+
+/**
+ * One dated germination count for a pot — cumulative, not incremental.
+ *
+ * `count: 0` is a real observation ("looked, nothing up"); a date with no entry
+ * at all means the pot wasn't assessed that day. The protocol depends on that
+ * distinction, so never coerce a missing count to 0.
+ */
+export interface TrialCount {
+  /** YYYY-MM-DD */
+  date: string;
+  /** Cumulative seeds germinated in this pot as at `date` */
+  count: number;
+}
+
+/**
+ * One replicate pot. The protocol runs 5 per compost and 5 controls, and every
+ * one of Caroline's sheets is one row per pot — so this, not the compost, is
+ * the unit of observation. Rollups to compost level are all derived
+ * (`src/utils/trialPots.ts`); nothing aggregate is ever stored.
+ */
+export interface TrialPot {
+  /** 1-based pot number within its treatment */
+  pot: number;
+  /** Seeds sown in this pot. Falls back to the run's `seedsSown` when absent. */
+  seedsSown?: number | null;
+  /** Dated cumulative germination counts */
+  counts?: TrialCount[];
+  /** Endpoint measurements, keyed by field id from `POT_FIELDS` */
+  measurements?: TrialMeasurements;
+  notes?: string;
+}
 
 /**
  * A control in a trial run — seed raising mix, garden compost, zone 2 soil.
@@ -73,6 +111,42 @@ export interface TrialControl {
   label: string;
   /** Measured values, keyed by field id from TRIAL_FIELDS — same shape as a trial's */
   measurements: TrialMeasurements;
+  /** Replicate pots. Present once the run has been taken to pot level. */
+  pots?: TrialPot[];
+}
+
+/**
+ * A whole-seedling length band (root tip → shoot tip). The Performance
+ * Assessment sheet leaves the boundaries blank for the site to define, so they
+ * are a per-run setting rather than a constant.
+ */
+export interface SizeBand {
+  /** 1-based class number, matching "Class 1".."Class 4" in the sheet */
+  cls: number;
+  /** Lower bound in cm, inclusive. Null on the first band = no lower bound. */
+  minCm: number | null;
+  /** Upper bound in cm, exclusive. Null on the last band = no upper bound. */
+  maxCm: number | null;
+}
+
+/**
+ * Per-run protocol settings. Stored as one JSON column on the `Trial Runs` tab
+ * so the protocol can gain a setting without another sheet migration.
+ */
+export interface TrialRunSettings {
+  /** Replicate pots per treatment. Protocol default 5. */
+  potsPerTreatment?: number | null;
+  /** Shared observation dates the whole run is counted on (YYYY-MM-DD). */
+  observationDates?: string[];
+  /** The four whole-seedling length bands. */
+  sizeBands?: SizeBand[];
+  /**
+   * Relative-performance threshold, as a percentage of the control. The
+   * Performance Assessment sheet uses 80 and makes it editable; the older
+   * protocol document says 90. Absent means 90, so existing runs keep the
+   * verdicts they already had.
+   */
+  passThresholdPct?: number | null;
 }
 
 /**
@@ -94,6 +168,8 @@ export interface TrialRun {
   notes: string;
   /** ISO timestamp of the last write */
   updatedAt: string;
+  /** Protocol settings — pots per treatment, size bands, threshold, count dates */
+  settings?: TrialRunSettings;
 }
 
 export interface GrowInfo {

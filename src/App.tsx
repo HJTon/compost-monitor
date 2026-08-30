@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { CompostProvider, useCompost } from '@/contexts/CompostContext';
 import { ToastContainer } from '@/components/Toast';
 import { UpdatePrompt } from '@/components/UpdatePrompt';
@@ -21,6 +21,10 @@ import { SystemAnalysePage } from '@/pages/SystemAnalysePage';
 import { ComparePage } from '@/pages/ComparePage';
 import { TrialRunsPage } from '@/pages/TrialRunsPage';
 import { TrialRunPage } from '@/pages/TrialRunPage';
+import { TrialCountDayPage } from '@/pages/TrialCountDayPage';
+import { TrialTreatmentPage } from '@/pages/TrialTreatmentPage';
+import { SandboxHomePage } from '@/pages/SandboxHomePage';
+import { SandboxProvider } from '@/contexts/SandboxProvider';
 import { PublicViewPage } from '@/pages/PublicViewPage';
 import { SampleEntryPage } from '@/pages/SampleEntryPage';
 import { PrintReportPage } from '@/pages/PrintReportPage';
@@ -62,6 +66,17 @@ function AppRoutes() {
               {/* Literal route must come before the :runId param route */}
               <Route path="/trials" element={<TrialRunsPage />} />
               <Route path="/trials/:runId" element={<TrialRunPage />} />
+              <Route path="/trials/:runId/count" element={<TrialCountDayPage />} />
+              <Route path="/trials/:runId/t/:key" element={<TrialTreatmentPage />} />
+              {/* Practice space — the same trial pages, wrapped in a provider
+                  that serves made-up data and swallows every write. */}
+              <Route path="/sandbox" element={<SandboxProvider><Outlet /></SandboxProvider>}>
+                <Route index element={<SandboxHomePage />} />
+                <Route path="trials" element={<TrialRunsPage />} />
+                <Route path="trials/:runId" element={<TrialRunPage />} />
+                <Route path="trials/:runId/count" element={<TrialCountDayPage />} />
+                <Route path="trials/:runId/t/:key" element={<TrialTreatmentPage />} />
+              </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </PasswordGate>

@@ -11,6 +11,7 @@ import {
   trialTypeDef,
 } from '@/utils/trials';
 import { hasMeasurements, pileCountsByRun, runAsTrial, runMembers } from '@/utils/trialRuns';
+import { useTrialBase } from '@/contexts/SandboxProvider';
 
 /**
  * Index of protocol runs — one row per experiment, newest first.
@@ -22,6 +23,7 @@ import { hasMeasurements, pileCountsByRun, runAsTrial, runMembers } from '@/util
 export function TrialRunsPage() {
   const navigate = useNavigate();
   const { trialRuns, allSystems } = useCompost();
+  const { base, sandbox } = useTrialBase();
 
   const pileCounts = useMemo(() => pileCountsByRun(allSystems), [allSystems]);
 
@@ -32,7 +34,7 @@ export function TrialRunsPage() {
 
   return (
     <div className="min-h-screen bg-green-50/50 pb-8">
-      <Header title="Trial runs" showBack onBack={() => navigate('/analyse')} />
+      <Header title={sandbox ? 'Practice runs' : 'Trial runs'} showBack onBack={() => navigate(sandbox ? '/sandbox' : '/analyse')} />
 
       <div className="p-4 space-y-3">
         <p className="text-sm text-gray-500">
@@ -51,7 +53,7 @@ export function TrialRunsPage() {
           return (
             <button
               key={run.runId}
-              onClick={() => navigate(`/trials/${run.runId}`)}
+              onClick={() => navigate(`${base}/${run.runId}`)}
               className="w-full bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-left active:scale-[0.98] transition-transform flex items-center gap-3"
             >
               <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">

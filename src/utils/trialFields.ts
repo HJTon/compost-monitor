@@ -172,14 +172,19 @@ export const TRIAL_FIELDS: Record<TrialType, readonly TrialField[]> = {
 
 /**
  * Protocol defaults when starting a new run of each type:
- * 25 mustard seeds per pot / 1 broad bean per pot, 3 replicate pots per compost.
+ * 25 mustard seeds per pot / 1 broad bean per pot.
+ *
+ * Germination is 5 replicate pots per compost and 5 control pots — the figure
+ * in the protocol document as revised 28 Aug 2026. It said 3 when this table
+ * was written. The broad bean test still specifies 3.
+ *
  * Crop trials have no protocol design yet (the potato plan comes later).
  */
 export const PROTOCOL_RUN_DEFAULTS: Record<TrialType, {
   seedsSown: number | null;
   replicates: number | null;
 }> = {
-  'germination': { seedsSown: 25, replicates: 3 },
+  'germination': { seedsSown: 25, replicates: 5 },
   'growth-test': { seedsSown: 1,  replicates: 3 },
   'crop':        { seedsSown: null, replicates: null },
 };

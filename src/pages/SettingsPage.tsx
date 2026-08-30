@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, MapPin, Download, CheckCircle, Share, Package } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { RefreshCw, MapPin, Download, CheckCircle, Share, Package, FlaskConical, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { useCompost } from '@/contexts/CompostContext';
@@ -20,6 +21,7 @@ function formatBuildTime(iso: string): string {
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const { settings, updateSettings, syncNow, discardPending, isSyncing, pendingCount, addToast } = useCompost();
   const [lat, setLat] = useState(settings.farmLatitude.toString());
   const [lon, setLon] = useState(settings.farmLongitude.toString());
@@ -102,6 +104,23 @@ export function SettingsPage() {
       <Header title="Settings" showBack />
 
       <div className="p-4 space-y-4">
+        {/* Practice space — safe place to learn the trial screens */}
+        <button
+          onClick={() => navigate('/sandbox')}
+          className="w-full bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-left flex items-center gap-3 active:scale-[0.99] transition-transform"
+        >
+          <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
+            <FlaskConical size={18} className="text-purple-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-gray-900">Practice space</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Try the mustard germination screens on made-up data. Nothing is saved.
+            </p>
+          </div>
+          <ChevronRight size={18} className="text-gray-300 shrink-0" />
+        </button>
+
         {/* App version */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-3">

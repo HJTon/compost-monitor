@@ -337,6 +337,65 @@ shows a tip, never a block.
   tabs (`compost-trial-options.ts`), following the `compost-build-types.ts` pattern. The
   maturation dropdowns (container / placement / cover) are still per-device settings.
 
+### The mustard germination assay is pot-level
+
+Germination runs are recorded **one row per pot** — the protocol runs 5 replicate pots per
+compost plus 5 control pots, and all of Caroline's spreadsheets are shaped that way. The
+broad bean growth test and crop trials still use the original one-row-per-compost table.
+
+- `TrialRunPage` is a router: `type === 'germination'` renders `TrialRunPotsPage`, everything
+  else falls through to the original table (`LegacyTrialRunPage`, same file). Don't fold the
+  two together — the broad bean protocol has no replicate detail to record.
+- Pots live **inside existing JSON**: `GrowTrial.pots` (Build Phases → GrowJSON) and
+  `TrialControl.pots` (Trial Runs → Controls). No new tab, no new function. Run-level
+  protocol settings — pots per treatment, shared observation dates, size bands, alert
+  threshold — go in one `Settings` JSON column on `Trial Runs`, merge-patched key by key so
+  an older client can't blank a newer one's fields.
+- **`src/utils/trialPots.ts` is the whole assay.** Field definitions, rollups, the count
+  check and the verdict ladder all live there; nothing aggregate is ever stored. Its numbers
+  reproduce the Batch Summary sheet exactly — if you change the maths, check it against
+  `Green_Loop_Mustard_Trial_ALIGNED.xlsm` (Pivot 1–4 → 78.7 / 29.3 / 61.3 / 100 % overall,
+  consistency 80 / 20 / 0 / 100).
+- `src/utils/trialTreatments.ts` flattens builds and controls into one `Treatment` list and
+  knows how to write each back. Use it rather than reaching into either store directly.
+- Three states matter and are easy to conflate: a count of **0** is "looked, nothing up";
+  a **missing** count is "not assessed"; and a pot with a count but no size classes is
+  `pending`, not a data error. Only a partially-sorted pot whose classes don't sum to its
+  germination count is a `mismatch`.
+- Verdicts need every pot counted. Sorting seedlings into size bands is a later job, so a
+  counted-but-unsorted treatment still reports its germination result (`growth-pending`)
+  instead of hiding behind "incomplete".
+- The alert threshold is **per run**: 80% for new runs (the Performance Assessment sheet),
+  90% when the setting is absent (the protocol document, and what the app scored against
+  before pots existed) — so old runs keep their verdicts.
+- **Size bands are not a constant.** The assessment sheet leaves them blank for the site to
+  fix; `DEFAULT_SIZE_BANDS` is a placeholder. Changing them re-labels counts that were
+  sorted under the old boundaries.
+- The assay is a **screen, not a diagnosis**. `TrialVerdictCard` always shows the verdict
+  with its plain-English meaning and the "not its cause" caveat — keep them together.
+- `scripts/import-mustard-19jul.mjs` is the idempotent one-shot that loads Caroline's
+  19 July 2026 run into the live sheet via the deployed functions (`--dry-run` supported).
+
+### Practice space (`/sandbox`)
+
+A training copy of the trial screens, linked from the top of Settings. It runs the **real**
+pages against made-up data — a learner should practise the thing they'll actually do.
+
+- `SandboxProvider` wraps the real context value and swaps only `allSystems`, `trialRuns`,
+  `setSystemPhase`, `saveTrialRun` and `getTrialRun` for in-memory state. Toasts, settings and
+  online status pass through. This is why `CompostContext` and `CompostContextType` are
+  exported — nothing else should use them directly.
+- `useTrialBase()` gives pages their URL prefix (`/trials` or `/sandbox/trials`) and a
+  `sandbox` flag. It defaults to the real routes, so pages work unchanged outside the sandbox.
+  **Any new link in a trial page must go through it**, or the sandbox will escape into real data.
+- `buildSandboxScenario()` returns a fresh object graph every call (the Reset button depends
+  on that). The four demo piles are deliberately left in different states so every verdict
+  the assay can produce is visible without typing anything.
+- **Photos are disabled in the sandbox.** Uploads write a real Drive file and a real row on the
+  Media tab keyed by system name — from a demo pile that would be a genuine row for a build
+  that doesn't exist. If you add another feature that writes outside the context, gate it on
+  `sandbox` the same way.
+
 ## Shared-tab gotcha: first row wins
 
 `compost-build-info.ts` and `compost-build-phase.ts` both UPDATE the **first** row whose

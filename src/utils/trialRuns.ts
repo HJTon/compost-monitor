@@ -34,11 +34,19 @@ export function pileCountsByRun(systems: CompostSystem[]): Map<string, number> {
 }
 
 /**
- * True when at least one of the stage's entered (non-derived) fields has a
- * value — "has anyone filled this row in yet?". Derived fields don't count:
- * they're computed, so they'd make an empty row look complete.
+ * True when anything has been recorded against this trial — "has anyone
+ * filled this row in yet?".
+ *
+ * Pot-level trials keep everything on their pots, so a germination trial with
+ * five counted pots and an empty `measurements` still counts as having
+ * results. Derived fields never count: they're computed, so they'd make an
+ * empty row look complete.
  */
 export function hasMeasurements(trial: GrowTrial): boolean {
+  if (trial.pots?.some(p => (p.counts?.length ?? 0) > 0
+    || Object.values(p.measurements || {}).some(v => v !== null && v !== undefined && v !== ''))) {
+    return true;
+  }
   const m = trial.measurements;
   if (!m) return false;
   return fieldsFor(trialTypeOf(trial)).some(f => {

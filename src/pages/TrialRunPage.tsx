@@ -25,6 +25,7 @@ import {
   fieldsFor,
 } from '@/utils/trialFields';
 import { runAsTrial, runMembers } from '@/utils/trialRuns';
+import { TrialRunPotsPage } from './TrialRunPotsPage';
 import type {
   CompostSystem,
   GrowTrial,
@@ -59,7 +60,7 @@ function toNum(raw: string): number | null {
  * Layout note: the table scrolls inside its own `overflow-x-auto` box with a
  * sticky first column, so at 375px the page body never moves sideways.
  */
-export function TrialRunPage() {
+function LegacyTrialRunPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
   const {
@@ -714,4 +715,22 @@ export function TrialRunPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * A trial run — routed to whichever view fits its stage.
+ *
+ * Germination runs are recorded pot by pot (`TrialRunPotsPage`), matching the
+ * protocol sheets. The broad bean growth test and open-ended crop trials still
+ * use the original one-row-per-compost table above; their protocols haven't
+ * been taken to pot level, and forcing them into it would ask for replicate
+ * detail nobody records for them.
+ */
+export function TrialRunPage() {
+  const { runId } = useParams<{ runId: string }>();
+  const { getTrialRun } = useCompost();
+  const run = runId ? getTrialRun(runId) : undefined;
+
+  if (run?.type === 'germination') return <TrialRunPotsPage />;
+  return <LegacyTrialRunPage />;
 }
