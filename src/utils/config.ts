@@ -69,6 +69,7 @@ export const DEFAULT_BUILD_TYPES = [
   'Circular Bioreactors (Central Airflow) – Static',
   'Compost Cylinders (Passive Systems) – Static',
   'Pallet Compost Bays (Turned Systems) – Non Static',
+  'Mac Cube-Static',
 ];
 
 // Default mulch types — user can add more via the app
