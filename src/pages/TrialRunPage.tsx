@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Plus, Settings2, Trash2, X } from 'lucide-react
 import { Header } from '@/components/Header';
 import { formatNiceDate } from '@/components/BuildVitals';
 import { MeasurementInput, normaliseMeasurements } from '@/components/MeasurementInput';
+import { TrialRunActions } from '@/components/TrialRunActions';
 import { useCompost } from '@/contexts/CompostContext';
 import { generateId, getNZDate } from '@/utils/config';
 import {
@@ -436,6 +437,8 @@ function LegacyTrialRunPage() {
               </button>
             </div>
           )}
+
+          <TrialRunActions run={run} />
         </div>
 
         {/* ── Result table ──────────────────────────────────────────────── */}

@@ -347,7 +347,7 @@ export function ManagePage() {
   const { allSystems, settings, setSystemPhase, removeCustomSystem, addToast, businesses, saveBusiness } = useCompost();
 
   // Phase transition modal
-  const [phaseModal, setPhaseModal] = useState<{ system: CompostSystem; mode: 'toMaturation' | 'toGrow' | 'addTrial' } | null>(null);
+  const [phaseModal, setPhaseModal] = useState<{ system: CompostSystem; mode: 'toMaturation' | 'toGrow' | 'addTrial'; repeatOf?: GrowTrial } | null>(null);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -561,9 +561,10 @@ export function ManagePage() {
   const maturationBuilds = activeSystems.filter(s => getPhase(s) === 'maturation');
   const growBuilds = activeSystems.filter(s => getPhase(s) === 'grow');
 
-  const handleRemoveTrial = async (system: CompostSystem, trialId: string) => {
+  const handleRemoveTrial = async (system: CompostSystem, trial: GrowTrial) => {
     if (!system.grow) return;
-    const next = { ...system.grow, trials: system.grow.trials.filter(t => t.id !== trialId) };
+    if (!confirm(`Delete the ${trial.crop || 'trial'} trial on ${system.name}? Its results go with it.`)) return;
+    const next = { ...system.grow, trials: system.grow.trials.filter(t => t.id !== trial.id) };
     await setSystemPhase(system.id, 'grow', { grow: next });
   };
 
@@ -1110,7 +1111,8 @@ export function ManagePage() {
                             trial={t}
                             readOnly={false}
                             onChange={next => handleUpdateTrial(system, next)}
-                            onRemove={tr => handleRemoveTrial(system, tr.id)}
+                            onRemove={tr => handleRemoveTrial(system, tr)}
+                            onRepeat={tr => setPhaseModal({ system, mode: 'addTrial', repeatOf: tr })}
                           />
                         ))}
                       </div>
@@ -1132,6 +1134,7 @@ export function ManagePage() {
         <PhaseModal
           system={phaseModal.system}
           mode={phaseModal.mode}
+          repeatOf={phaseModal.repeatOf}
           onClose={() => setPhaseModal(null)}
         />
       )}

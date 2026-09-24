@@ -4,6 +4,7 @@ import { ChevronRight, ClipboardList, Plus, Settings2, Trash2, X } from 'lucide-
 import { Header } from '@/components/Header';
 import { formatNiceDate } from '@/components/BuildVitals';
 import { TrialVerdictCard } from '@/components/TrialVerdictCard';
+import { TrialRunActions } from '@/components/TrialRunActions';
 import { useCompost } from '@/contexts/CompostContext';
 import { generateId, getNZDate } from '@/utils/config';
 import { EMPTY_VALUE } from '@/utils/trialFields';
@@ -343,6 +344,8 @@ export function TrialRunPotsPage() {
               </button>
             </div>
           )}
+
+          <TrialRunActions run={run} />
         </div>
 
         {/* ── Control baseline ───────────────────────────────────────────── */}

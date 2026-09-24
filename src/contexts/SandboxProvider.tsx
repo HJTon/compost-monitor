@@ -10,7 +10,7 @@ import type { CompostSystem, GrowInfo, TrialRun } from '@/types';
 // not a simplified imitation of it that behaves differently.
 //
 // It works by wrapping the real context value and swapping out only the trial
-// pieces — systems, runs, and the two save functions — for in-memory state.
+// pieces — systems, runs, and the save/delete functions — for in-memory state.
 // Everything else (toasts, settings, online status) passes straight through, so
 // the pages behave normally. Nothing here touches IndexedDB or the network.
 
@@ -74,6 +74,9 @@ export function SandboxProvider({ children }: { children: ReactNode }) {
     settings: { ...real.settings, activeSystems: scenario.systems.map(s => s.id) },
     setSystemPhase: setSystemPhase as CompostContextType['setSystemPhase'],
     saveTrialRun,
+    // The practice space holds exactly one run, so repeat/delete are hidden
+    // there — this stub only guarantees nothing can reach the real sheet.
+    deleteTrialRun: async () => {},
     getTrialRun,
   }), [real, scenario, setSystemPhase, saveTrialRun, getTrialRun]);
 

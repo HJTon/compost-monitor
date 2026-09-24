@@ -15,6 +15,7 @@ import {
   hasCompletedGermination,
   trialStatus,
   trialTypeDef,
+  trialTypeOf,
 } from '@/utils/trials';
 import { PROTOCOL_RUN_DEFAULTS } from '@/utils/trialFields';
 import { pileCountsByRun, runAsTrial } from '@/utils/trialRuns';
@@ -24,13 +25,15 @@ import type { CompostSystem, MaturationInfo, GrowTrial, TrialRun, TrialType } fr
 interface Props {
   system: CompostSystem;
   mode: 'toMaturation' | 'toGrow' | 'addTrial';
+  /** Prefill the add-trial form from this trial — used to redo one that failed. */
+  repeatOf?: GrowTrial;
   onClose: () => void;
 }
 
 /** Which run this trial joins: none, an existing one (by id), or a brand new one. */
 type RunChoice = { kind: 'none' } | { kind: 'existing'; runId: string } | { kind: 'new' };
 
-export function PhaseModal({ system, mode, onClose }: Props) {
+export function PhaseModal({ system, mode, repeatOf, onClose }: Props) {
   const {
     settings,
     updateSettings,
@@ -54,17 +57,23 @@ export function PhaseModal({ system, mode, onClose }: Props) {
   const [date, setDate] = useState(getNZDate());
 
   // Trial state
-  const [trialType, setTrialType] = useState<TrialType>('germination');
-  const [plannedDays, setPlannedDays] = useState<string>('5');
-  const [method, setMethod] = useState('');
-  const [crop, setCrop] = useState('');
+  const initialType: TrialType = repeatOf ? trialTypeOf(repeatOf) : 'germination';
+  const [trialType, setTrialType] = useState<TrialType>(initialType);
+  const [plannedDays, setPlannedDays] = useState<string>(() => {
+    if (!repeatOf) return '5';
+    const days = repeatOf.plannedDays ?? trialTypeDef(initialType).days;
+    return days != null ? String(days) : '';
+  });
+  const [method, setMethod] = useState(repeatOf?.method || '');
+  const [crop, setCrop] = useState(repeatOf?.crop || '');
   const [notes, setNotes] = useState('');
 
   // Run state — a trial can join an existing protocol run, start one, or stand alone.
-  const [runChoice, setRunChoice] = useState<RunChoice>({ kind: 'none' });
+  // A repeat of a run trial defaults to a new run — the old run's sowing date has passed.
+  const [runChoice, setRunChoice] = useState<RunChoice>(repeatOf?.runId ? { kind: 'new' } : { kind: 'none' });
   const [seedsSown, setSeedsSown] = useState<string>(
-    PROTOCOL_RUN_DEFAULTS['germination'].seedsSown != null
-      ? String(PROTOCOL_RUN_DEFAULTS['germination'].seedsSown)
+    PROTOCOL_RUN_DEFAULTS[initialType].seedsSown != null
+      ? String(PROTOCOL_RUN_DEFAULTS[initialType].seedsSown)
       : ''
   );
 
@@ -219,6 +228,7 @@ export function PhaseModal({ system, mode, onClose }: Props) {
   const title =
     mode === 'toMaturation' ? `Move ${system.name} to Maturation` :
     mode === 'toGrow' ? `Move ${system.name} to Grow phase` :
+    repeatOf ? `Repeat trial on ${system.name}` :
     `Add trial to ${system.name}`;
 
   return (

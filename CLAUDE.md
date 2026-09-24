@@ -333,6 +333,13 @@ shows a tip, never a block.
 - `TrialsDueCard` (Dashboard) and `TrialProtocolOverview` (`/analyse` index) are read-only
   summaries over the same client-side data. The Dashboard hides grow-phase builds from its
   main list, which is why the due card exists at all.
+- **Repeating and deleting.** Trials fail and get redone. `TrialRunActions` (on both run
+  pages) repeats a run as a NEW run with the same protocol, control labels and chosen piles,
+  and nothing measured, so the failed run stays as its own record. It also deletes a run:
+  the `Trial Runs` row (DELETE on `compost-trial-runs.ts`) and every pile's trial pointing at
+  it. A single trial's **Repeat** button opens `PhaseModal` with `repeatOf` to prefill it.
+  The copy logic is `repeatRun` / `repeatTrial` in `src/utils/trialRuns.ts`. Both actions are
+  hidden in the sandbox, which only holds one run.
 - Trial **methods and crops** are shared across devices via the `Trial Methods` / `Trial Crops`
   tabs (`compost-trial-options.ts`), following the `compost-build-types.ts` pattern. The
   maturation dropdowns (container / placement / cover) are still per-device settings.

@@ -244,7 +244,7 @@ export default async (request: Request, _context: Context) => {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
@@ -352,6 +352,44 @@ export default async (request: Request, _context: Context) => {
       }
 
       return new Response(JSON.stringify({ success: true, run: merged }), {
+        status: 200, headers: JSON_HEADERS,
+      });
+    }
+
+    if (request.method === 'DELETE') {
+      const runId = new URL(request.url).searchParams.get('runId')?.trim();
+      if (!runId) {
+        return new Response(JSON.stringify({ error: 'Missing runId' }), {
+          status: 400, headers: JSON_HEADERS,
+        });
+      }
+
+      const meta = await sheets.spreadsheets.get({ spreadsheetId });
+      const sheetId = meta.data.sheets?.find(s => s.properties?.title === TAB)?.properties?.sheetId;
+      const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: RANGE });
+      const values = (res.data.values as string[][]) || [];
+
+      // Every row with this RunId, not just the first — a duplicate left behind
+      // would resurface as the run on the next read. Deleted bottom-up so the
+      // earlier row indices stay valid.
+      const indices: number[] = [];
+      for (let i = 1; i < values.length; i++) {
+        if (values[i][0] === runId) indices.push(i);
+      }
+      if (indices.length > 0 && sheetId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: indices.reverse().map(i => ({
+              deleteDimension: {
+                range: { sheetId, dimension: 'ROWS', startIndex: i, endIndex: i + 1 },
+              },
+            })),
+          },
+        });
+      }
+
+      return new Response(JSON.stringify({ success: true, deleted: indices.length }), {
         status: 200, headers: JSON_HEADERS,
       });
     }

@@ -1,6 +1,8 @@
 import type { CompostSystem, GrowTrial, TrialRun } from '@/types';
 import { fieldsFor } from './trialFields';
 import { trialTypeOf } from './trials';
+import { generateId } from './config';
+import { formatNiceDate } from '@/components/BuildVitals';
 
 // Membership helpers for the run pages. A run holds no list of its piles —
 // the link lives on each `GrowTrial.runId` — so "who is in this run?" is always
@@ -66,5 +68,49 @@ export function runAsTrial(run: TrialRun): GrowTrial {
     trialType: run.type,
     startedAt: run.startDate,
     plannedDays: run.plannedDays,
+  };
+}
+
+/**
+ * A fresh copy of a run for a redo — usually because the first attempt failed
+ * (the compost wasn't ready, the seed was bad). Same protocol and same control
+ * labels, but nothing measured: the old run stays behind as its own record.
+ * Observation dates are dropped because they belong to the old sowing.
+ */
+export function repeatRun(run: TrialRun, startDate: string, newRunId: string): TrialRun {
+  const { observationDates: _dates, ...settings } = run.settings || {};
+  return {
+    runId: newRunId,
+    type: run.type,
+    startDate,
+    plannedDays: run.plannedDays,
+    seedsSown: run.seedsSown,
+    controls: run.controls.map(c => ({
+      id: generateId(),
+      label: c.label,
+      measurements: {},
+      ...(c.pots ? { pots: [] } : {}),
+    })),
+    notes: `Repeat of the run started ${formatNiceDate(run.startDate) || run.startDate || 'earlier'}.`,
+    updatedAt: new Date().toISOString(),
+    settings: run.settings ? settings : undefined,
+  };
+}
+
+/**
+ * A new trial with the same stage, method and crop as `trial`, starting on
+ * `startDate` with nothing recorded. `runId` is the run it joins, if any.
+ */
+export function repeatTrial(trial: GrowTrial, startDate: string, runId?: string): GrowTrial {
+  return {
+    id: generateId(),
+    method: trial.method,
+    crop: trial.crop,
+    createdAt: `${startDate}T00:00:00`,
+    trialType: trialTypeOf(trial),
+    startedAt: startDate,
+    plannedDays: trial.plannedDays ?? null,
+    runId,
+    replicates: runId ? trial.replicates : undefined,
   };
 }

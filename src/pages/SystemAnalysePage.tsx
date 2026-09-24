@@ -717,6 +717,8 @@ export function SystemAnalysePage() {
   // ── Growth trials ─────────────────────────────────────────────────────────
   const trialsRef = useRef<HTMLDivElement>(null);
   const [showAddTrial, setShowAddTrial] = useState(false);
+  // Set when the form was opened from a trial's Repeat button.
+  const [repeatOf, setRepeatOf] = useState<GrowTrial | undefined>(undefined);
 
   // Replace one trial, carry every other one through untouched.
   const handleTrialChange = useCallback(async (next: GrowTrial) => {
@@ -1532,7 +1534,7 @@ export function SystemAnalysePage() {
               <h3 className="font-semibold text-gray-900">Growth Trials</h3>
               {!isPublicView && (
                 <button
-                  onClick={() => setShowAddTrial(true)}
+                  onClick={() => { setRepeatOf(undefined); setShowAddTrial(true); }}
                   className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-600 text-white font-medium hover:bg-purple-700 transition-colors"
                 >
                   <Plus size={12} />
@@ -1581,6 +1583,7 @@ export function SystemAnalysePage() {
                     readOnly={isPublicView}
                     onChange={handleTrialChange}
                     onRemove={isPublicView ? undefined : handleTrialRemove}
+                    onRepeat={isPublicView ? undefined : tr => { setRepeatOf(tr); setShowAddTrial(true); }}
                   />
                 ))}
               </div>
@@ -1609,6 +1612,7 @@ export function SystemAnalysePage() {
         <PhaseModal
           system={system}
           mode="addTrial"
+          repeatOf={repeatOf}
           onClose={() => setShowAddTrial(false)}
         />
       )}

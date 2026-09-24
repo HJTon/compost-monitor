@@ -83,6 +83,8 @@ export interface CompostContextType {
   // Trial runs (shared/global protocol experiments — Trial Runs sheet tab)
   trialRuns: TrialRun[];
   saveTrialRun: (run: TrialRun) => Promise<void>;
+  /** Remove the run row. Its piles' trials are the caller's job — see `TrialRunActions`. */
+  deleteTrialRun: (runId: string) => Promise<void>;
   getTrialRun: (runId: string) => TrialRun | undefined;
 
   // Refresh
@@ -695,6 +697,20 @@ export function CompostProvider({ children }: { children: ReactNode }) {
     }
   }, [addToast]);
 
+  const deleteTrialRun = useCallback(async (runId: string) => {
+    setTrialRuns(prev => prev.filter(r => r.runId !== runId));
+    try {
+      const res = await fetch(
+        `/.netlify/functions/compost-trial-runs?runId=${encodeURIComponent(runId)}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      console.warn('Could not delete trial run from sheet:', err);
+      addToast('error', 'Could not delete the run from the sheet — it may reappear next time the app opens');
+    }
+  }, [addToast]);
+
   /** First run with this id (first-wins, see `upsertRun`). */
   const getTrialRun = useCallback((runId: string): TrialRun | undefined => {
     return trialRuns.find(r => r.runId === runId);
@@ -1047,6 +1063,7 @@ export function CompostProvider({ children }: { children: ReactNode }) {
         addTrialCrop,
         trialRuns,
         saveTrialRun,
+        deleteTrialRun,
         getTrialRun,
         refreshEntries,
       }}

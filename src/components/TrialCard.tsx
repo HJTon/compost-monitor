@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Save, Trash2, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, RotateCcw, Save, Trash2, CheckCircle2 } from 'lucide-react';
 import { EditableSelect } from './EditableSelect';
 import { InlinePhotoSlot } from './InlinePhotoSlot';
 import { MeasurementInput, normaliseMeasurements } from './MeasurementInput';
@@ -36,6 +36,8 @@ interface TrialCardProps {
   /** Parent rebuilds GrowInfo and persists via setSystemPhase */
   onChange: (next: GrowTrial) => Promise<void> | void;
   onRemove?: (trial: GrowTrial) => void;
+  /** Start a fresh trial of the same kind — for redoing one that failed */
+  onRepeat?: (trial: GrowTrial) => void;
   /** Start expanded (used when linking straight to a trial) */
   defaultExpanded?: boolean;
 }
@@ -67,7 +69,7 @@ function VerdictBadge({ verdict, pct }: { verdict: 'pass' | 'check' | null; pct:
  * expanded it's a full editor with dates, the protocol's measured fields for
  * this trial's stage, visual observations, per-trial photos and free-text notes.
  */
-export function TrialCard({ system, trial, readOnly, onChange, onRemove, defaultExpanded }: TrialCardProps) {
+export function TrialCard({ system, trial, readOnly, onChange, onRemove, onRepeat, defaultExpanded }: TrialCardProps) {
   const {
     addToast,
     trialMethods,
@@ -547,6 +549,16 @@ export function TrialCard({ system, trial, readOnly, onChange, onRemove, default
                   >
                     <CheckCircle2 size={12} />
                     Mark complete
+                  </button>
+                )}
+                {onRepeat && (
+                  <button
+                    type="button"
+                    onClick={() => onRepeat(trial)}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-purple-200 text-purple-700 font-medium hover:bg-purple-50"
+                  >
+                    <RotateCcw size={12} />
+                    Repeat
                   </button>
                 )}
                 {onRemove && (
