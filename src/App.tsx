@@ -27,6 +27,7 @@ import { SandboxHomePage } from '@/pages/SandboxHomePage';
 import { SandboxProvider } from '@/contexts/SandboxProvider';
 import { PublicViewPage } from '@/pages/PublicViewPage';
 import { SampleEntryPage } from '@/pages/SampleEntryPage';
+import { ImpactReportPage } from '@/pages/ImpactReportPage';
 import { PrintReportPage } from '@/pages/PrintReportPage';
 
 function AppRoutes() {
@@ -39,6 +40,8 @@ function AppRoutes() {
         <Route path="/view" element={<PublicViewPage />} />
         <Route path="/view/:systemId" element={<SystemAnalysePage />} />
         <Route path="/view/compare" element={<ComparePage />} />
+        {/* Public unlisted business impact report — the code in the URL is the access control */}
+        <Route path="/impact/:code" element={<ImpactReportPage />} />
 
         {/* Protected routes — password required */}
         <Route path="/*" element={
