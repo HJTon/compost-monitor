@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Download, Loader2, X } from 'lucide-react';
+import { Download, FileText, Loader2, Table2, X } from 'lucide-react';
 import {
-  type ImpactReport, MONTH_LONG, fetchImpact, fmt1, fmtDate, fmtInt, fmtKg, fmtMass, fmtMonth,
-  groupByYear, ourCo2e, readStoredYearStart, storeYearStart,
+  type ImpactReport, DEFAULT_COMPOSTING_FACTOR, DIVERSION_NOTE, MONTH_LONG, SCOPE3_NOTE, SDG_TAGS, SDG_TITLE,
+  compostDestinationLine, defaultStatementYear, downloadImpactCsv, fetchImpact, fmt1, fmtDate, fmtInt, fmtKg, fmtMass, fmtMonth,
+  groupByYear, isToDate, ourCo2e, readStoredYearStart, scope3Of, storeYearStart,
 } from '@/utils/impactReport';
 
 // Public, unlisted page. The unguessable code in the URL is the access control.
@@ -118,6 +119,9 @@ export function ImpactReportPage() {
   const [startMonth, setStartMonth] = useState<number | null>(() => readStoredYearStart(code));
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState(false);
+  const [stmtYear, setStmtYear] = useState<number | null>(null);
+  const [stmtBusy, setStmtBusy] = useState(false);
+  const [stmtError, setStmtError] = useState(false);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -130,7 +134,9 @@ export function ImpactReportPage() {
 
   const report = state.status === 'ok' ? state.report : null;
   const effectiveStart = startMonth ?? report?.settings.yearStartMonth ?? 1;
-  const years = useMemo(() => (report ? groupByYear(report.months, effectiveStart) : []), [report, effectiveStart]);
+  const factor = report?.methodology.factors.compostingKgCo2ePerKg ?? DEFAULT_COMPOSTING_FACTOR;
+  const years = useMemo(() => (report ? groupByYear(report.months, effectiveStart, factor) : []), [report, effectiveStart, factor]);
+  const stmt = years.find((g) => g.startYear === stmtYear) ?? defaultStatementYear(years);
   const monthsNewest = useMemo(() => (report ? [...report.months].reverse() : []), [report]);
 
   if (state.status === 'loading') {
@@ -184,6 +190,21 @@ export function ImpactReportPage() {
     }
   }
 
+  async function onStatement() {
+    if (!report || !stmt) return;
+    setStmtBusy(true); setStmtError(false);
+    try {
+      const { downloadStatementPdf } = await import('@/utils/impactStatementPdf');
+      await downloadStatementPdf(report, stmt, window.location.href);
+    } catch (e) {
+      console.error('Statement generation failed', e);
+      setStmtError(true);
+    } finally {
+      setStmtBusy(false);
+    }
+  }
+
+  const dest = compostDestinationLine(report);
   const th = 'px-2 py-2 text-right font-medium first:text-left whitespace-nowrap';
   const td = 'px-2 py-1.5 text-right first:text-left tabular-nums whitespace-nowrap';
 
@@ -214,7 +235,7 @@ export function ImpactReportPage() {
       <div className="max-w-3xl mx-auto px-4 -mt-3 space-y-5">
         {/* Stat tiles */}
         <div className="grid grid-cols-2 gap-3">
-          <Tile label="Food waste diverted" value={fmtMass(t.kg)} sub={t.kg >= 1000 ? fmtKg(t.kg) : undefined} />
+          <Tile label="Organic waste diverted from landfill" value={fmtMass(t.kg)} sub={t.kg >= 1000 ? fmtKg(t.kg) : undefined} />
           <Tile label="Volume" value={`${fmtInt(t.litres)} L`} sub={`${fmtInt(t.pickups)} collections`} />
           <div className="col-span-2">
             <Tile
@@ -226,6 +247,47 @@ export function ImpactReportPage() {
             />
           </div>
         </div>
+
+        <p className="text-[11px] text-gray-500 px-1 -mt-2">{DIVERSION_NOTE}</p>
+
+        {/* Scope 3 */}
+        <section className="bg-white rounded-2xl border border-gray-200 p-4">
+          <h2 className="font-semibold text-gray-800">For your carbon footprint</h2>
+          <p className="text-xs text-gray-500 mt-1">Your emissions from food waste (Scope 3, Category 5: waste generated in operations)</p>
+          <p className="text-2xl font-bold text-gray-800 mt-1 leading-tight">{fmtInt(scope3Of(t.kg, factor))} <span className="text-base font-semibold">kg CO&#8322;e</span> <span className="text-xs font-normal text-gray-500">all time</span></p>
+          {years.length > 0 && (
+            <p className="text-xs text-gray-600 mt-1">
+              {years.map((g, i) => <span key={g.startYear}>{i > 0 && ' · '}{g.label}: <b>{fmtInt(g.scope3Kg)} kg</b></span>)}
+            </p>
+          )}
+          <p className="text-xs text-gray-500 mt-2">{SCOPE3_NOTE}</p>
+
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700">For your reporting</h3>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button onClick={() => downloadImpactCsv(report)} className="inline-flex items-center gap-1.5 border border-green-primary text-green-primary font-semibold rounded-lg px-3 py-1.5 text-xs">
+                <Table2 size={14} /> Download data (CSV)
+              </button>
+            </div>
+            {stmt && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  aria-label="Reporting year for the statement"
+                  value={stmt.startYear}
+                  onChange={(e) => setStmtYear(Number(e.target.value))}
+                  className="border border-gray-300 rounded-md px-1.5 py-1.5 text-xs text-gray-800 bg-white max-w-full"
+                >
+                  {years.map((g) => <option key={g.startYear} value={g.startYear}>{g.label}{isToDate(g) ? ' (to date)' : ''}</option>)}
+                </select>
+                <button onClick={onStatement} disabled={stmtBusy} className="inline-flex items-center gap-1.5 bg-green-primary text-white font-semibold rounded-lg px-3 py-1.5 text-xs disabled:opacity-60">
+                  {stmtBusy ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} Download statement
+                </button>
+              </div>
+            )}
+            {stmtError && <p className="text-xs text-red-600 mt-2">Sorry, the statement could not be created. Please try again.</p>}
+            <p className="text-[11px] text-gray-500 mt-2">The statement is a one-page Food Waste Diversion Statement for the reporting year you pick, for sustainability certifications and annual reports.</p>
+          </div>
+        </section>
 
         {/* Yearly */}
         <section className="bg-white rounded-2xl border border-gray-200 p-4">
@@ -245,12 +307,12 @@ export function ImpactReportPage() {
           <div className="overflow-x-auto -mx-1">
             <table className="w-full text-xs">
               <thead><tr className="text-gray-500 border-b border-gray-200">
-                <th className={th}>Year</th><th className={th}>Pickups</th><th className={th}>Litres</th><th className={th}>Kg</th><th className={th}>CO&#8322;e avoided (kg)*</th>
+                <th className={th}>Year</th><th className={th}>Pickups</th><th className={th}>Litres</th><th className={th}>Kg diverted</th><th className={th}>Scope 3 (kg CO&#8322;e)</th><th className={th}>CO&#8322;e avoided (kg)*</th>
               </tr></thead>
               <tbody>
                 {years.map((g) => (
                   <tr key={g.startYear} className="border-b border-gray-100 last:border-0">
-                    <td className={`${td} font-medium text-gray-800`}>{g.label}</td><td className={td}>{fmtInt(g.pickups)}</td><td className={td}>{fmtInt(g.litres)}</td><td className={td}>{fmtInt(g.kg)}</td><td className={td}>{fmtInt(g.co2eOurKg)}</td>
+                    <td className={`${td} font-medium text-gray-800`}>{g.label}</td><td className={td}>{fmtInt(g.pickups)}</td><td className={td}>{fmtInt(g.litres)}</td><td className={td}>{fmtInt(g.kg)}</td><td className={td}>{fmtInt(g.scope3Kg)}</td><td className={td}>{fmtInt(g.co2eOurKg)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -290,12 +352,13 @@ export function ImpactReportPage() {
           ) : (
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-500 border-b border-gray-200"><th className={th}>Pile</th><th className={th}>Built</th><th className={th}>Your containers</th></tr></thead>
+                <thead><tr className="text-gray-500 border-b border-gray-200"><th className={th}>Pile</th><th className={th}>Built</th><th className={th}>Stage</th><th className={th}>Your containers</th></tr></thead>
                 <tbody>
                   {report.piles.map((p) => (
                     <tr key={p.pile} className="border-b border-gray-100 last:border-0">
                       <td className={`${td} font-medium text-gray-800`}>{p.pile}</td>
                       <td className={td}>{p.batchingDate ? fmtDate(p.batchingDate) : 'Date not recorded'}</td>
+                      <td className={td}>{p.stage ?? ''}</td>
                       <td className={td}>{fmt1(p.containers)}</td>
                     </tr>
                   ))}
@@ -303,6 +366,13 @@ export function ImpactReportPage() {
               </table>
             </div>
           )}
+          {dest && <p className="text-sm text-gray-700 mt-3">{dest}</p>}
+          <div className="mt-3">
+            <p className="text-[11px] text-gray-500 mb-1">{SDG_TITLE}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {SDG_TAGS.map((tag) => <span key={tag} className="text-[11px] bg-green-50 text-green-dark border border-green-primary/20 rounded-full px-2 py-0.5">{tag}</span>)}
+            </div>
+          </div>
           {report.stillMaturing > 0 && (
             <p className="text-xs text-gray-500 mt-2">{report.stillMaturing} container{report.stillMaturing === 1 ? '' : 's'} maturing or not yet recorded in a pile.</p>
           )}
@@ -330,6 +400,7 @@ export function ImpactReportPage() {
               Using the standard composting factor ({f.compostingKgCo2ePerKg} kg CO&#8322;e/kg) instead, the conservative figure is <b>{fmtMass(t.co2eVsLandfillKg)}</b>; use that if your reporting requires official factors.
             </p>
           )}
+          <p><b>Your emissions from food waste (Scope 3, Category 5):</b> weight diverted x the official MfE composting factor ({f.compostingKgCo2ePerKg} kg CO&#8322;e/kg), with transport counted as zero. It uses the official factor only, so it is suitable for a carbon inventory; the bokashi estimate is never used for it.</p>
           <p>Green Loop collects with an electric van charged from solar panels, so our own transport emissions are counted as zero.</p>
           <ul className="list-disc pl-4 space-y-0.5">
             {mt.sources.filter((src) => !src.url.includes('food-scraps-bin')).map((src) => (
