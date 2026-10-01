@@ -49,7 +49,11 @@ export default defineConfig({
         clientsClaim: true,
         // Never cache Netlify function responses — they must always hit the network
         // so writes/reads go straight to Google Sheets.
-        navigateFallbackDenylist: [/^\/\.netlify\/functions\//],
+        // /impact/ report links are opened by businesses and from the collector app, often on a
+        // device that already has this PWA cached. Serving them the cached app shell runs an old
+        // bundle that may not know the route (it falls through to /dashboard), so always fetch
+        // those pages fresh from the network.
+        navigateFallbackDenylist: [/^\/\.netlify\/functions\//, /^\/impact\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\.open-meteo\.com\/.*/i,
