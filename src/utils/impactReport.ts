@@ -15,6 +15,7 @@ export interface MonthRow {
   co2eLandfillKg: number;
   co2eTransportKg: number;
   co2eVsGreenBinKg: number;
+  co2eVsLandfillBokashiKg?: number; // Green Loop estimate: red-bin figure without composting methane
   measuredLitres: number;
   estimatedLitres: number;
 }
@@ -61,6 +62,8 @@ export interface ImpactReport {
       avoidedVsLandfillPerKgFood: number;
       avoidedVsLandfillPerKgGarden: number;
       avoidedVsGreenBinPerKg: number;
+      bokashiCompostingKgCo2ePerKg?: number;
+      avoidedVsLandfillBokashiPerKgFood?: number;
     };
     sources: { label: string; url: string }[];
     assumptions: string[];

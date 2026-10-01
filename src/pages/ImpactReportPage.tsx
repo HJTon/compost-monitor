@@ -170,6 +170,13 @@ export function ImpactReportPage() {
           </div>
           <div className="col-span-2 sm:col-span-1">
             <Tile
+              label="With our bokashi pre-fermentation (Green Loop estimate)"
+              value={fmtMass(t.co2eVsLandfillBokashiKg ?? t.co2eVsLandfillKg)}
+              sub="CO₂e avoided vs the red bin, if four weeks of bokashi first leaves almost no composting methane"
+            />
+          </div>
+          <div className="col-span-2">
+            <Tile
               label="CO₂e avoided vs the council food-scraps bin"
               value={fmtMass(t.co2eVsGreenBinKg)}
               sub="from shorter trucking (council scraps go to Hampton Downs)"

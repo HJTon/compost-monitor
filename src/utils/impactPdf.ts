@@ -71,7 +71,12 @@ export async function downloadImpactPdf(report: ImpactReport, startMonth: number
     doc.setTextColor(100); doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
     doc.text(doc.splitTextToSize(sub, tw - 4) as string[], x + 2, y + 18);
   });
-  y += 32;
+  y += 30;
+  if (t.co2eVsLandfillBokashiKg != null) {
+    doc.setTextColor(60); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text('With our four-week bokashi pre-fermentation (Green Loop estimate, not an official factor): ' + fmtMass(t.co2eVsLandfillBokashiKg) + ' CO2e avoided vs the red bin.', M, y);
+    y += 7;
+  } else y += 2;
 
   const head = [['Period', 'Pickups', 'Litres', 'Kg', 'CO2e vs red bin (kg)', 'CO2e vs council bin (kg)']];
   const tableStyle = {
