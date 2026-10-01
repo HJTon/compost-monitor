@@ -253,7 +253,7 @@ export function ImpactReportPage() {
             </div>
           )}
           {report.stillMaturing > 0 && (
-            <p className="text-xs text-gray-500 mt-2">{report.stillMaturing} container{report.stillMaturing === 1 ? '' : 's'} still maturing.</p>
+            <p className="text-xs text-gray-500 mt-2">{report.stillMaturing} container{report.stillMaturing === 1 ? '' : 's'} maturing or not yet recorded in a pile.</p>
           )}
         </section>
 

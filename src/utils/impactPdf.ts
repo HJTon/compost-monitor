@@ -113,7 +113,7 @@ export async function downloadImpactPdf(report: ImpactReport, startMonth: number
     });
     y = lastY() + 3;
   }
-  if (report.stillMaturing > 0) para(`${report.stillMaturing} container${report.stillMaturing === 1 ? '' : 's'} still maturing, not yet built into a pile.`);
+  if (report.stillMaturing > 0) para(`${report.stillMaturing} container${report.stillMaturing === 1 ? '' : 's'} maturing or not yet recorded in a pile.`);
   y += 4;
 
   // Methodology
