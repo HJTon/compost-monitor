@@ -99,9 +99,13 @@ export interface YearGroup {
   pickups: number;
   litres: number;
   kg: number;
-  co2eVsLandfillKg: number;
-  co2eVsGreenBinKg: number;
+  co2eVsLandfillKg: number; // conservative: official MfE composting factor
+  co2eOurKg: number; // headline: Green Loop bokashi estimate
 }
+
+/** Headline CO2e: the bokashi estimate, falling back to the official figure for older API responses. */
+export const ourCo2e = (r: { co2eVsLandfillKg: number; co2eVsLandfillBokashiKg?: number }) =>
+  r.co2eVsLandfillBokashiKg ?? r.co2eVsLandfillKg;
 
 export function groupByYear(months: MonthRow[], startMonth: number): YearGroup[] {
   const map = new Map<number, YearGroup>();
@@ -115,14 +119,14 @@ export function groupByYear(months: MonthRow[], startMonth: number): YearGroup[]
       const label = startMonth === 1
         ? String(startYear)
         : `${MONTH_SHORT[startMonth - 1]} ${startYear} – ${MONTH_SHORT[endMonth - 1]} ${startYear + 1}`;
-      g = { label, startYear, pickups: 0, litres: 0, kg: 0, co2eVsLandfillKg: 0, co2eVsGreenBinKg: 0 };
+      g = { label, startYear, pickups: 0, litres: 0, kg: 0, co2eVsLandfillKg: 0, co2eOurKg: 0 };
       map.set(startYear, g);
     }
     g.pickups += m.pickups;
     g.litres += m.litres;
     g.kg += m.kg;
     g.co2eVsLandfillKg += m.co2eVsLandfillKg;
-    g.co2eVsGreenBinKg += m.co2eVsGreenBinKg;
+    g.co2eOurKg += ourCo2e(m);
   }
   return [...map.values()].sort((a, b) => b.startYear - a.startYear); // newest first
 }
@@ -171,4 +175,30 @@ export function storeYearStart(code: string, m: number): void {
   try {
     localStorage.setItem(lsKey(code), String(m));
   } catch { /* storage unavailable: preference just isn't remembered */ }
+}
+
+/**
+ * The Green Loop logo, cropped to the roundel and shrunk for embedding (the source file is ~360 KB).
+ * Drawn as a white disc on `bg` so it sits cleanly on a coloured header (JPEG has no transparency).
+ */
+export async function loadLogoDataUrl(size = 240, bg = '#2d8b4e'): Promise<string> {
+  const img = new Image();
+  img.src = '/green-loop-logo.jpg';
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('no canvas');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.clip();
+  // The 1688px source has a wide white margin; the roundel sits in the middle ~1360px.
+  const crop = img.naturalWidth * 0.806;
+  const off = (img.naturalWidth - crop) / 2;
+  ctx.drawImage(img, off, off, crop, crop, 0, 0, size, size);
+  return c.toDataURL('image/jpeg', 0.9);
 }

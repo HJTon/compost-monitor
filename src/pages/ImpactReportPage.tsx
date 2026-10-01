@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Download, Leaf, Loader2 } from 'lucide-react';
+import { Download, Loader2, X } from 'lucide-react';
 import {
   type ImpactReport, MONTH_LONG, fetchImpact, fmt1, fmtDate, fmtInt, fmtKg, fmtMass, fmtMonth,
-  groupByYear, readStoredYearStart, storeYearStart,
+  groupByYear, ourCo2e, readStoredYearStart, storeYearStart,
 } from '@/utils/impactReport';
 
 // Public, unlisted page. The unguessable code in the URL is the access control.
@@ -19,20 +19,71 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-green-50/50 pb-10">
       <div className="bg-green-primary text-white px-4 py-4">
-        <div className="max-w-3xl mx-auto flex items-center gap-2 text-white/80 text-xs font-medium">
-          <Leaf size={14} /> Green Loop &middot; Sustainable Taranaki
-        </div>
+        <div className="max-w-3xl mx-auto"><Brand /></div>
         {children}
       </div>
     </div>
   );
 }
 
-function Tile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+function Logo({ className = '' }: { className?: string }) {
   return (
-    <div className={`rounded-2xl border p-4 ${accent ? 'bg-white border-green-primary/30' : 'bg-white border-gray-200'}`}>
+    <div className={`rounded-full bg-white overflow-hidden shrink-0 ${className}`}>
+      <img src="/green-loop-logo.jpg" alt="Green Loop" className="w-full h-full object-cover scale-[1.24]" />
+    </div>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-2 text-white/80 text-xs font-medium">
+      <Logo className="w-7 h-7" /> Green Loop &middot; Sustainable Taranaki
+    </div>
+  );
+}
+
+/** The "*" next to the headline CO2e figure: opens a small card with the conservative official figure. */
+function ConservativeNote({ official, ours }: { official: number; ours: number }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [open]);
+  return (
+    <span ref={ref} className="inline-block align-top">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label="About this figure"
+        className="ml-0.5 text-green-primary text-xl font-bold leading-none hover:text-green-dark"
+      >*</button>
+      {open && (
+        <span role="dialog" className="absolute z-20 left-3 right-3 sm:right-auto sm:w-96 top-[4.75rem] rounded-xl border border-gray-200 bg-white shadow-lg p-3 text-left text-xs font-normal text-gray-600 leading-snug">
+          <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"><X size={14} /></button>
+          <span className="block font-semibold text-gray-800 pr-5">Conservative figure: {fmtMass(official)}</span>
+          <span className="block mt-1">
+            Our {fmtMass(ours)} reflects Green Loop&apos;s four-week bokashi pre-fermentation, which leaves very little methane when the waste is composted.
+            Using the NZ Ministry for the Environment&apos;s standard composting factor instead, which assumes ordinary composting methane, the saving is {fmtMass(official)}.
+            Use the conservative figure if your reporting requires official factors.
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Tile({ label, value, sub, accent, note }: { label: string; value: string; sub?: string; accent?: boolean; note?: React.ReactNode }) {
+  return (
+    <div className={`relative rounded-2xl border p-4 ${accent ? 'bg-white border-green-primary/30' : 'bg-white border-gray-200'}`}>
       <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-2xl font-bold text-green-primary mt-1 leading-tight">{value}</p>
+      <p className="text-2xl font-bold text-green-primary mt-1 leading-tight">{value}{note}</p>
       {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
     </div>
   );
@@ -140,10 +191,15 @@ export function ImpactReportPage() {
     <div className="min-h-screen bg-green-50/50 pb-10">
       <div className="bg-green-primary text-white px-4 pt-4 pb-6">
         <div className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-2 text-white/80 text-xs font-medium"><Leaf size={14} /> Green Loop &middot; Sustainable Taranaki</div>
-          <h1 className="font-bold text-2xl mt-2 leading-tight">{report.business}</h1>
-          <p className="text-white/90 text-sm mt-0.5">Food waste diverted from landfill</p>
-          <p className="text-white/60 text-xs mt-1">{range}</p>
+          <div className="flex items-center gap-4">
+            <Logo className="w-16 h-16 sm:w-20 sm:h-20 ring-2 ring-white/40" />
+            <div className="min-w-0">
+              <p className="text-white/80 text-xs font-medium">Green Loop &middot; Sustainable Taranaki</p>
+              <h1 className="font-bold text-2xl leading-tight">{report.business}</h1>
+              <p className="text-white/90 text-sm mt-0.5">Food waste diverted from landfill</p>
+              <p className="text-white/60 text-xs mt-1">{range}</p>
+            </div>
+          </div>
           <button
             onClick={onDownload}
             disabled={pdfBusy}
@@ -160,26 +216,13 @@ export function ImpactReportPage() {
         <div className="grid grid-cols-2 gap-3">
           <Tile label="Food waste diverted" value={fmtMass(t.kg)} sub={t.kg >= 1000 ? fmtKg(t.kg) : undefined} />
           <Tile label="Volume" value={`${fmtInt(t.litres)} L`} sub={`${fmtInt(t.pickups)} collections`} />
-          <div className="col-span-2 sm:col-span-1">
-            <Tile
-              accent
-              label="CO₂e avoided vs the red bin"
-              value={fmtMass(t.co2eVsLandfillKg)}
-              sub={`${fmtMass(t.co2eLandfillKg)} from landfill methane, ${fmtMass(t.co2eTransportKg)} from trucking`}
-            />
-          </div>
-          <div className="col-span-2 sm:col-span-1">
-            <Tile
-              label="With our bokashi pre-fermentation (Green Loop estimate)"
-              value={fmtMass(t.co2eVsLandfillBokashiKg ?? t.co2eVsLandfillKg)}
-              sub="CO₂e avoided vs the red bin, if four weeks of bokashi first leaves almost no composting methane"
-            />
-          </div>
           <div className="col-span-2">
             <Tile
-              label="CO₂e avoided vs the council food-scraps bin"
-              value={fmtMass(t.co2eVsGreenBinKg)}
-              sub="from shorter trucking (council scraps go to Hampton Downs)"
+              accent
+              label="Emissions avoided (CO₂e) compared with the red bin"
+              value={fmtMass(ourCo2e(t))}
+              note={t.co2eVsLandfillBokashiKg != null && <ConservativeNote official={t.co2eVsLandfillKg} ours={t.co2eVsLandfillBokashiKg} />}
+              sub={`${fmtMass(ourCo2e(t) - t.co2eTransportKg)} landfill methane avoided, ${fmtMass(t.co2eTransportKg)} trucking to landfill avoided`}
             />
           </div>
         </div>
@@ -202,12 +245,12 @@ export function ImpactReportPage() {
           <div className="overflow-x-auto -mx-1">
             <table className="w-full text-xs">
               <thead><tr className="text-gray-500 border-b border-gray-200">
-                <th className={th}>Year</th><th className={th}>Pickups</th><th className={th}>Litres</th><th className={th}>Kg</th><th className={th}>CO&#8322;e (red bin)</th><th className={th}>CO&#8322;e (council bin)</th>
+                <th className={th}>Year</th><th className={th}>Pickups</th><th className={th}>Litres</th><th className={th}>Kg</th><th className={th}>CO&#8322;e avoided (kg)*</th>
               </tr></thead>
               <tbody>
                 {years.map((g) => (
                   <tr key={g.startYear} className="border-b border-gray-100 last:border-0">
-                    <td className={`${td} font-medium text-gray-800`}>{g.label}</td><td className={td}>{fmtInt(g.pickups)}</td><td className={td}>{fmtInt(g.litres)}</td><td className={td}>{fmtInt(g.kg)}</td><td className={td}>{fmtInt(g.co2eVsLandfillKg)}</td><td className={td}>{fmtInt(g.co2eVsGreenBinKg)}</td>
+                    <td className={`${td} font-medium text-gray-800`}>{g.label}</td><td className={td}>{fmtInt(g.pickups)}</td><td className={td}>{fmtInt(g.litres)}</td><td className={td}>{fmtInt(g.kg)}</td><td className={td}>{fmtInt(g.co2eOurKg)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -222,20 +265,21 @@ export function ImpactReportPage() {
           <div className="overflow-x-auto -mx-1">
             <table className="w-full text-xs">
               <thead><tr className="text-gray-500 border-b border-gray-200">
-                <th className={th}>Month</th><th className={th}>Pickups</th><th className={th}>Litres</th><th className={th}>Kg</th><th className={th}>CO&#8322;e (red bin)</th><th className={th}>CO&#8322;e (council bin)</th>
+                <th className={th}>Month</th><th className={th}>Pickups</th><th className={th}>Litres</th><th className={th}>Kg</th><th className={th}>CO&#8322;e avoided (kg)*</th>
               </tr></thead>
               <tbody>
                 {monthsNewest.map((m) => (
                   <tr key={m.month} className="border-b border-gray-100 last:border-0">
-                    <td className={`${td} font-medium text-gray-800`}>{fmtMonth(m.month)}{mt.invoicingStart && m.month < mt.invoicingStart.slice(0, 7) ? ' *' : ''}</td><td className={td}>{fmtInt(m.pickups)}</td><td className={td}>{fmtInt(m.litres)}</td><td className={td}>{fmtInt(m.kg)}</td><td className={td}>{fmtInt(m.co2eVsLandfillKg)}</td><td className={td}>{fmtInt(m.co2eVsGreenBinKg)}</td>
+                    <td className={`${td} font-medium text-gray-800`}>{fmtMonth(m.month)}{mt.invoicingStart && m.month < mt.invoicingStart.slice(0, 7) ? ' ~' : ''}</td><td className={td}>{fmtInt(m.pickups)}</td><td className={td}>{fmtInt(m.litres)}</td><td className={td}>{fmtInt(m.kg)}</td><td className={td}>{fmtInt(ourCo2e(m))}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           {mt.invoicingStart && report.months.some((m) => m.month < mt.invoicingStart!.slice(0, 7)) && (
-            <p className="text-[11px] text-gray-500 mt-2">* Estimated from farm bin records.</p>
+            <p className="text-[11px] text-gray-500 mt-2">~ Estimated from farm bin records.</p>
           )}
+          <p className="text-[11px] text-gray-500 mt-1">* CO&#8322;e avoided includes our bokashi pre-fermentation; see the conservative figure under &ldquo;How these numbers are worked out&rdquo;.</p>
         </section>
 
         {/* Piles */}
@@ -275,22 +319,20 @@ export function ImpactReportPage() {
             {mt.invoicingStart ? ` Figures before ${fmtDate(mt.invoicingStart)} are estimated from farm bin records.` : ''}
           </p>
           <p>
-            <b>Avoided vs the red bin:</b> landfill with gas recovery {f.foodWasteLandfillGasRecoveryKgCo2ePerKg} kg CO&#8322;e/kg (garden waste {f.gardenWasteLandfillGasRecoveryKgCo2ePerKg}),
+            <b>Emissions avoided compared with the red bin:</b> what this waste would have emitted in landfill (with gas recovery, {f.foodWasteLandfillGasRecoveryKgCo2ePerKg} kg CO&#8322;e/kg; garden waste {f.gardenWasteLandfillGasRecoveryKgCo2ePerKg}),
             plus {f.redBinLandfillKm} km of trucking to Bonny Glen landfill near Marton at {f.truckKgCo2ePerTonneKm} kg CO&#8322;e per tonne-km ({f.redBinTransportKgCo2ePerKg} kg CO&#8322;e/kg),
-            minus our composting at {f.compostingKgCo2ePerKg} kg CO&#8322;e/kg. We use &ldquo;with gas recovery&rdquo; because Bonny Glen captures landfill gas, the conservative choice.
+            minus the emissions from our composting. We use &ldquo;with gas recovery&rdquo; because Bonny Glen captures landfill gas, which gives the lower, more conservative landfill figure.
           </p>
-          <p>
-            <b>Avoided vs the council food-scraps bin:</b> the council trucks scraps about {f.councilFoodScrapsKm} km to a composting facility at Hampton Downs, so composting emissions cancel out and only that trucking
-            ({f.councilTransportKgCo2ePerKg} kg CO&#8322;e/kg) is avoided. The council&apos;s local collection leg is ignored (electric trucks), which is conservative.
-          </p>
-          <p>Green Loop collects with an electric van charged from solar panels, so our own transport emissions are counted as zero.</p>
           {f.bokashiCompostingKgCo2ePerKg != null && (
             <p>
-              <strong>Bokashi figure</strong> (Green Loop estimate, not an official factor): our food waste ferments in bokashi for four weeks before composting, which should leave very little methane. It drops the methane part of the composting factor (0.112 kg CO&#8322;e/kg) and keeps the nitrous oxide part ({f.bokashiCompostingKgCo2ePerKg} kg CO&#8322;e/kg). Not yet confirmed by measurement.
+              <b>* Our composting and bokashi:</b> our food waste ferments in bokashi for four weeks before it is composted, which leaves very little methane. So for our composting we count only the nitrous oxide part of the
+              standard factor ({f.bokashiCompostingKgCo2ePerKg} kg CO&#8322;e/kg) and not its methane part (0.112 kg CO&#8322;e/kg). This is Green Loop&apos;s own estimate and hasn&apos;t yet been confirmed by measurement.
+              Using the standard composting factor ({f.compostingKgCo2ePerKg} kg CO&#8322;e/kg) instead, the conservative figure is <b>{fmtMass(t.co2eVsLandfillKg)}</b>; use that if your reporting requires official factors.
             </p>
           )}
+          <p>Green Loop collects with an electric van charged from solar panels, so our own transport emissions are counted as zero.</p>
           <ul className="list-disc pl-4 space-y-0.5">
-            {mt.sources.map((src) => (
+            {mt.sources.filter((src) => !src.url.includes('food-scraps-bin')).map((src) => (
               <li key={src.url}><a href={src.url} target="_blank" rel="noopener noreferrer" className="underline text-green-dark">{src.label}</a></li>
             ))}
           </ul>
