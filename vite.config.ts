@@ -26,6 +26,9 @@ export default defineConfig({
         theme_color: '#2D8B4E',
         background_color: '#f0fdf4',
         display: 'standalone',
+        // A report link opened while the installed app is already showing another report must
+        // load the new URL, not just bring the existing window (and the old report) forward.
+        launch_handler: { client_mode: ['navigate-existing', 'auto'] },
         orientation: 'portrait',
         icons: [
           {
