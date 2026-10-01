@@ -23,7 +23,8 @@ function formatNZDate(dateStr: string): string {
     year: 'numeric',
   }).formatToParts(d);
   const day = parts.find(p => p.type === 'day')?.value ?? '';
-  const month = parts.find(p => p.type === 'month')?.value ?? '';
+  // 3 letters: en-NZ gives "Sept", which Sheets stores as text instead of a date.
+  const month = (parts.find(p => p.type === 'month')?.value ?? '').slice(0, 3);
   const year = parts.find(p => p.type === 'year')?.value ?? '';
   return `${day}-${month}-${year}`; // e.g. "21-Feb-2026"
 }
