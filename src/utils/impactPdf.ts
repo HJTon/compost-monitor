@@ -78,12 +78,17 @@ export async function downloadImpactPdf(report: ImpactReport, startMonth: number
     y += 7;
   } else y += 2;
 
+  // Header cells follow their column's alignment, so numbers sit under their headings.
+  const rightAlignNumberHeads = (d: { section: string; column: { index: number }; cell: { styles: { halign: string } } }) => {
+    if (d.section === 'head' && d.column.index > 0) d.cell.styles.halign = 'right';
+  };
   const head = [['Period', 'Pickups', 'Litres', 'Kg', 'CO2e vs red bin (kg)', 'CO2e vs council bin (kg)']];
   const tableStyle = {
     theme: 'striped' as const,
     headStyles: { fillColor: GREEN, fontSize: 8 },
     styles: { fontSize: 8, cellPadding: 1.6 },
-    columnStyles: { 1: { halign: 'right' as const }, 2: { halign: 'right' as const }, 3: { halign: 'right' as const }, 4: { halign: 'right' as const }, 5: { halign: 'right' as const } },
+    columnStyles: { 0: { cellWidth: 30 }, 1: { halign: 'right' as const }, 2: { halign: 'right' as const }, 3: { halign: 'right' as const }, 4: { halign: 'right' as const }, 5: { halign: 'right' as const } },
+    didParseCell: rightAlignNumberHeads,
     margin: { left: M, right: M },
   };
 
@@ -114,7 +119,8 @@ export async function downloadImpactPdf(report: ImpactReport, startMonth: number
       head: [['Pile', 'Built (batching date)', 'Your containers']],
       headStyles: { fillColor: GREEN, fontSize: 8 }, styles: { fontSize: 8, cellPadding: 1.6 },
       columnStyles: { 2: { halign: 'right' } },
-      body: report.piles.map((p) => [ascii(p.pile), p.batchingDate ? fmtDate(p.batchingDate) : 'Not yet built', fmt1(p.containers)]),
+      didParseCell: (d) => { if (d.section === 'head' && d.column.index === 2) d.cell.styles.halign = 'right'; },
+      body: report.piles.map((p) => [ascii(p.pile), p.batchingDate ? fmtDate(p.batchingDate) : 'Date not recorded', fmt1(p.containers)]),
     });
     y = lastY() + 3;
   }
@@ -132,6 +138,7 @@ export async function downloadImpactPdf(report: ImpactReport, startMonth: number
   para(`Avoided vs red bin: landfill with gas recovery ${f.foodWasteLandfillGasRecoveryKgCo2ePerKg} kg CO2e/kg (garden waste ${f.gardenWasteLandfillGasRecoveryKgCo2ePerKg}) plus ${f.redBinLandfillKm} km trucking to Bonny Glen landfill at ${f.truckKgCo2ePerTonneKm} kg CO2e per tonne-km (${f.redBinTransportKgCo2ePerKg} kg CO2e/kg), minus composting ${f.compostingKgCo2ePerKg} kg CO2e/kg.`);
   para(`Avoided vs council food-scraps bin: council trucks scraps about ${f.councilFoodScrapsKm} km to Hampton Downs for composting, so composting emissions cancel and only the trucking (${f.councilTransportKgCo2ePerKg} kg CO2e/kg) is avoided. The council's local collection leg is ignored (electric trucks).`);
   para('Green Loop collects with an electric van charged from solar panels, so our transport emissions are counted as zero.');
+  if (report.methodology.factors.bokashiCompostingKgCo2ePerKg != null) para('Bokashi figure (Green Loop estimate, not an official factor): our food waste ferments in bokashi for four weeks before composting, which should leave very little methane. It drops the methane part of the composting factor (0.112 kg CO2e/kg) and keeps the nitrous oxide part (' + report.methodology.factors.bokashiCompostingKgCo2ePerKg + ' kg CO2e/kg). Not yet confirmed by measurement.');
   para('Landfill "with gas recovery" is used because Bonny Glen captures landfill gas; this is the conservative choice.');
   y += 1;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(60); ensure(6);

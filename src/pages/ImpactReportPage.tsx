@@ -251,7 +251,7 @@ export function ImpactReportPage() {
                   {report.piles.map((p) => (
                     <tr key={p.pile} className="border-b border-gray-100 last:border-0">
                       <td className={`${td} font-medium text-gray-800`}>{p.pile}</td>
-                      <td className={td}>{p.batchingDate ? fmtDate(p.batchingDate) : 'Not yet built'}</td>
+                      <td className={td}>{p.batchingDate ? fmtDate(p.batchingDate) : 'Date not recorded'}</td>
                       <td className={td}>{fmt1(p.containers)}</td>
                     </tr>
                   ))}
@@ -284,6 +284,11 @@ export function ImpactReportPage() {
             ({f.councilTransportKgCo2ePerKg} kg CO&#8322;e/kg) is avoided. The council&apos;s local collection leg is ignored (electric trucks), which is conservative.
           </p>
           <p>Green Loop collects with an electric van charged from solar panels, so our own transport emissions are counted as zero.</p>
+          {f.bokashiCompostingKgCo2ePerKg != null && (
+            <p>
+              <strong>Bokashi figure</strong> (Green Loop estimate, not an official factor): our food waste ferments in bokashi for four weeks before composting, which should leave very little methane. It drops the methane part of the composting factor (0.112 kg CO&#8322;e/kg) and keeps the nitrous oxide part ({f.bokashiCompostingKgCo2ePerKg} kg CO&#8322;e/kg). Not yet confirmed by measurement.
+            </p>
+          )}
           <ul className="list-disc pl-4 space-y-0.5">
             {mt.sources.map((src) => (
               <li key={src.url}><a href={src.url} target="_blank" rel="noopener noreferrer" className="underline text-green-dark">{src.label}</a></li>
