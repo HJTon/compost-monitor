@@ -25,7 +25,9 @@ export interface PileRow {
   batchingDate: string | null;
   firstCollection: string;
   lastCollection: string;
-  containers: number;
+  containers: number | null; // this business's own bins + buckets (null: only older, unmeasured records)
+  litres?: number;
+  estimated?: boolean;
   stage?: string; // "Hot composting" | "Maturing" | "Finished compost, in use"; absent when unknown
 }
 
@@ -295,3 +297,8 @@ export async function loadLogoDataUrl(size = 240, bg = '#2d8b4e'): Promise<strin
   ctx.drawImage(img, off, off, crop, crop, 0, 0, size, size);
   return c.toDataURL('image/jpeg', 0.9);
 }
+
+/** Piles table cells: the business's own bins/buckets and litres in the pile ("~" = estimated). */
+export const pileContainers = (p: { containers: number | null }) => (p.containers == null ? '—' : fmt1(p.containers));
+export const pileLitres = (p: { litres?: number; estimated?: boolean }) =>
+  p.litres == null ? '—' : `${p.estimated ? '~' : ''}${fmtInt(p.litres)}`;

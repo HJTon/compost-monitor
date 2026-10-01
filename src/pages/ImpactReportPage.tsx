@@ -4,7 +4,7 @@ import { Download, FileText, Loader2, Table2, X } from 'lucide-react';
 import {
   type ImpactReport, DEFAULT_COMPOSTING_FACTOR, DIVERSION_NOTE, MONTH_LONG, SCOPE3_NOTE, SDG_TAGS, SDG_TITLE,
   compostDestinationLine, defaultStatementYear, downloadImpactCsv, fetchImpact, fmt1, fmtDate, fmtInt, fmtKg, fmtMass, fmtMonth,
-  groupByYear, isToDate, ourCo2e, readStoredYearStart, scope3Of, storeYearStart,
+  groupByYear, isToDate, ourCo2e, pileContainers, pileLitres, readStoredYearStart, scope3Of, storeYearStart,
 } from '@/utils/impactReport';
 
 // Public, unlisted page. The unguessable code in the URL is the access control.
@@ -352,14 +352,15 @@ export function ImpactReportPage() {
           ) : (
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-500 border-b border-gray-200"><th className={th}>Pile</th><th className={th}>Built</th><th className={th}>Stage</th><th className={th}>Your containers</th></tr></thead>
+                <thead><tr className="text-gray-500 border-b border-gray-200"><th className={th}>Pile</th><th className={th}>Built</th><th className={th}>Stage</th><th className={th}>Your bins</th><th className={th}>Your litres</th></tr></thead>
                 <tbody>
                   {report.piles.map((p) => (
                     <tr key={p.pile} className="border-b border-gray-100 last:border-0">
                       <td className={`${td} font-medium text-gray-800`}>{p.pile}</td>
                       <td className={td}>{p.batchingDate ? fmtDate(p.batchingDate) : 'Date not recorded'}</td>
                       <td className={td}>{p.stage ?? ''}</td>
-                      <td className={td}>{fmt1(p.containers)}</td>
+                      <td className={td}>{pileContainers(p)}</td>
+                      <td className={td}>{pileLitres(p)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -375,6 +376,9 @@ export function ImpactReportPage() {
           </div>
           {report.stillMaturing > 0 && (
             <p className="text-xs text-gray-500 mt-2">{report.stillMaturing} container{report.stillMaturing === 1 ? '' : 's'} maturing or not yet recorded in a pile.</p>
+          )}
+          {report.piles.length > 0 && (
+            <p className="text-[11px] text-gray-500 mt-1">Your bins and litres are what you put into each pile. ~ = estimated from older farm records, before each bin's volume was measured; — = not recorded.</p>
           )}
         </section>
 

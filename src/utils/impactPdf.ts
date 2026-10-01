@@ -3,7 +3,7 @@
 
 import {
   type ImpactReport, DEFAULT_COMPOSTING_FACTOR, DIVERSION_NOTE, MONTH_LONG, SCOPE3_NOTE, SCOPE3_TITLE, SDG_TAGS, SDG_TITLE,
-  compostDestinationLine, fmtDate, fmtInt, fmt1, fmtMass, fmtMonth, groupByYear, ourCo2e, scope3Of, slugify,
+  compostDestinationLine, fmtDate, fmtInt, fmt1, fmtMass, fmtMonth, groupByYear, ourCo2e, pileContainers, pileLitres, scope3Of, slugify,
 } from '@/utils/impactReport';
 import { GREEN, ascii, drawHeader } from '@/utils/pdfCommon';
 
@@ -121,15 +121,16 @@ export async function downloadImpactPdf(report: ImpactReport, startMonth: number
     ensure(20);
     autoTable(doc, {
       theme: 'striped', startY: y, margin: { left: M, right: M },
-      head: [['Pile', 'Built (batching date)', 'Stage', 'Your containers']],
+      head: [['Pile', 'Built (batching date)', 'Stage', 'Your bins', 'Your litres']],
       headStyles: { fillColor: GREEN, fontSize: 8 }, styles: { fontSize: 8, cellPadding: 1.6 },
-      columnStyles: { 3: { halign: 'right' } },
-      didParseCell: (d) => { if (d.section === 'head' && d.column.index === 3) d.cell.styles.halign = 'right'; },
-      body: report.piles.map((p) => [ascii(p.pile), p.batchingDate ? fmtDate(p.batchingDate) : 'Date not recorded', p.stage ?? '', fmt1(p.containers)]),
+      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
+      didParseCell: (d) => { if (d.section === 'head' && d.column.index >= 3) d.cell.styles.halign = 'right'; },
+      body: report.piles.map((p) => [ascii(p.pile), p.batchingDate ? fmtDate(p.batchingDate) : 'Date not recorded', p.stage ?? '', pileContainers(p), pileLitres(p)]),
     });
     y = lastY() + 3;
   }
   if (report.stillMaturing > 0) para(`${report.stillMaturing} container${report.stillMaturing === 1 ? '' : 's'} maturing or not yet recorded in a pile.`);
+  if (report.piles.length) para("Your bins and litres are what you put into each pile. ~ = estimated from older farm records, before each bin's volume was measured; - = not recorded.", 7.5);
   const dest = compostDestinationLine(report);
   if (dest) para(dest, 8.5);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(60); ensure(10);
