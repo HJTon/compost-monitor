@@ -1519,9 +1519,12 @@ export function SystemAnalysePage() {
             </div>
           )}
         </div>
+          {/* Each slot gets its own wrapper: PhotoSlot is h-full, so stacked
+              directly in this column each card took the full column height
+              and the second overflowed onto the sections below. */}
           <div className="space-y-6">
-            <InlinePhotoSlot systemName={system.name} slotId="readiness" heightClass="h-64 md:h-80" />
-            <InlinePhotoSlot systemName={system.name} slotId="quality" heightClass="h-64 md:h-80" />
+            <div><InlinePhotoSlot systemName={system.name} slotId="readiness" heightClass="h-64 md:h-80" /></div>
+            <div><InlinePhotoSlot systemName={system.name} slotId="quality" heightClass="h-64 md:h-80" /></div>
           </div>
         </div>
 
