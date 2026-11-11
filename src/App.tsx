@@ -29,6 +29,7 @@ import { PublicViewPage } from '@/pages/PublicViewPage';
 import { SampleEntryPage } from '@/pages/SampleEntryPage';
 import { ImpactReportPage } from '@/pages/ImpactReportPage';
 import { PrintReportPage } from '@/pages/PrintReportPage';
+import { FeedbackPage } from '@/pages/FeedbackPage';
 
 function AppRoutes() {
   const { toasts, dismissToast } = useCompost();
@@ -42,6 +43,9 @@ function AppRoutes() {
         <Route path="/view/compare" element={<ComparePage />} />
         {/* Public unlisted business impact report — the code in the URL is the access control */}
         <Route path="/impact/:code" element={<ImpactReportPage />} />
+        {/* Public event / tour feedback form — see src/utils/feedbackEvents.ts */}
+        <Route path="/feedback" element={<FeedbackPage />} />
+        <Route path="/feedback/:eventId" element={<FeedbackPage />} />
 
         {/* Protected routes — password required */}
         <Route path="/*" element={

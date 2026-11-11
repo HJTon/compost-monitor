@@ -56,7 +56,7 @@ export default defineConfig({
         // device that already has this PWA cached. Serving them the cached app shell runs an old
         // bundle that may not know the route (it falls through to /dashboard), so always fetch
         // those pages fresh from the network.
-        navigateFallbackDenylist: [/^\/\.netlify\/functions\//, /^\/impact\//],
+        navigateFallbackDenylist: [/^\/\.netlify\/functions\//, /^\/impact\//, /^\/feedback/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\.open-meteo\.com\/.*/i,
