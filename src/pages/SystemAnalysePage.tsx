@@ -750,7 +750,10 @@ export function SystemAnalysePage() {
   }
 
   const growTrials = system.grow?.trials ?? [];
-  const showTrialsSection = system.phase === 'grow' || growTrials.length > 0;
+  // Maturation piles get germination checks too, so they keep the section
+  // (and its Add trial button) even with no trials yet.
+  const showTrialsSection =
+    system.phase === 'grow' || system.phase === 'maturation' || growTrials.length > 0;
   const protocol = protocolProgress(growTrials);
   const scrollToTrials = () =>
     trialsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });

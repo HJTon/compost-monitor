@@ -565,7 +565,7 @@ export function ManagePage() {
     if (!system.grow) return;
     if (!confirm(`Delete the ${trial.crop || 'trial'} trial on ${system.name}? Its results go with it.`)) return;
     const next = { ...system.grow, trials: system.grow.trials.filter(t => t.id !== trial.id) };
-    await setSystemPhase(system.id, 'grow', { grow: next });
+    await setSystemPhase(system.id, system.phase || 'grow', { grow: next });
   };
 
   // Edit one trial in place — every other trial is carried through untouched.
@@ -1057,6 +1057,14 @@ export function ManagePage() {
             </p>
           )}
           renderAction={system => (
+            <>
+            <button
+              onClick={e => { e.stopPropagation(); setPhaseModal({ system, mode: 'addTrial' }); }}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-purple-200 text-purple-700 font-medium hover:bg-purple-50 transition-colors"
+            >
+              <Plus size={12} />
+              Trial
+            </button>
             <button
               onClick={e => { e.stopPropagation(); setPhaseModal({ system, mode: 'toGrow' }); }}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-purple-50 border border-purple-200 text-purple-700 font-medium hover:bg-purple-100 transition-colors"
@@ -1064,6 +1072,7 @@ export function ManagePage() {
               <ArrowRight size={12} />
               Move to Grow
             </button>
+            </>
           )}
           DeleteButton={DeleteButton}
         />

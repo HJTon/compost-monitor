@@ -217,7 +217,9 @@ export function PhaseModal({ system, mode, repeatOf, onClose }: Props) {
     const current = system.grow || { startedAt: startDate, trials: [] };
     const next = { ...current, trials: [...current.trials, trial] };
     const typeLabel = TRIAL_TYPES.find(t => t.id === trialType)?.label || 'Trial';
-    await setSystemPhase(system.id, 'grow', {
+    // A maturation pile can run germination checks without leaving maturation;
+    // anything else adding a trial moves into grow, as before.
+    await setSystemPhase(system.id, system.phase === 'maturation' ? 'maturation' : 'grow', {
       grow: next,
       transitionNote: `+ ${typeLabel} (${startDate}): ${method} · ${crop}`,
     });
