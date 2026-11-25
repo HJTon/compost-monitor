@@ -5,6 +5,8 @@ import { Header } from '@/components/Header';
 import { useCompost } from '@/contexts/CompostContext';
 import { COMPOST_SYSTEMS, generateId } from '@/utils/config';
 import { BinScanner, type ScanOutcome } from '@/components/BinScanner';
+import { BinMixBadge } from '@/components/BinMixBadge';
+import { BIN_TRACKER_URL, readCpByRow, mixForRow, type BinMix, type CpByRow } from '@/utils/binMix';
 import { formatSerialNumber } from '@/services/ocrService';
 import { PhaseModal } from '@/components/PhaseModal';
 import { TrialCard } from '@/components/TrialCard';
@@ -24,10 +26,12 @@ interface BinDetails {
   batchingDate: string;
   batch: string;
   notes: string;
+  mix?: BinMix; // all Zing / contains some chaffed pickle; undefined when unknown
 }
 
-function rowToBinDetails(row: string[]): BinDetails {
+function rowToBinDetails(row: string[], mix?: BinMix): BinDetails {
   return {
+    mix,
     collectionDate: row[0] || '',
     source1: row[1] || '',
     source2: row[2] || '',
@@ -65,6 +69,8 @@ function BinDetailCard({ bin, label, muted }: { bin: BinDetails; label?: string;
           </span>
         )}
       </div>
+
+      <BinMixBadge mix={bin.mix} />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
         <div>
@@ -361,13 +367,16 @@ export function ManagePage() {
   const [lookupNotFound, setLookupNotFound] = useState<string | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [binTrackerData, setBinTrackerData] = useState<string[][] | null>(null);
+  // CP names per Bin Tracker row, set alongside binTrackerData (a ref so callbacks see it at once)
+  const binTrackerCp = useRef<CpByRow>(null);
 
   // Fetch Bin Tracker data (cached for the session)
   const fetchBinTracker = useCallback(async (): Promise<string[][]> => {
     if (binTrackerData) return binTrackerData;
-    const res = await fetch('/.netlify/functions/compost-sheets-read?tab=Bin%20Tracker');
+    const res = await fetch(BIN_TRACKER_URL);
     const json = await res.json();
     const rows: string[][] = json.data || [];
+    binTrackerCp.current = readCpByRow(json);
     setBinTrackerData(rows);
     return rows;
   }, [binTrackerData]);
@@ -386,17 +395,20 @@ export function ManagePage() {
     try {
       const rows = await fetchBinTracker();
       // Find ALL matching rows (skip header), keep order from sheet (oldest first)
-      const matches = rows.slice(1).filter(row =>
-        formatSerialNumber(row[6] || '') === formatted
-      );
+      const matches = rows
+        .map((row, i) => ({ row, i }))
+        .slice(1)
+        .filter(({ row }) => formatSerialNumber(row[6] || '') === formatted);
+      const toDetails = ({ row, i }: { row: string[]; i: number }) =>
+        rowToBinDetails(row, mixForRow(binTrackerCp.current, i));
 
       if (matches.length > 0) {
         // Most recent = last match in the sheet
-        setLookupResult(rowToBinDetails(matches[matches.length - 1]));
+        setLookupResult(toDetails(matches[matches.length - 1]));
         // Previous cycles = everything except the last, in reverse chronological order
         if (matches.length > 1) {
           setLookupHistory(
-            matches.slice(0, -1).reverse().map(rowToBinDetails)
+            matches.slice(0, -1).reverse().map(toDetails)
           );
         }
       } else {
@@ -422,6 +434,16 @@ export function ManagePage() {
     }
     return 'selected';
   }, [lookupBin, binTrackerData]);
+
+  // Mix of the most recent Bin Tracker row for a scanned serial (serials get reused across cycles)
+  const getScannedMix = useCallback(async (serial: string): Promise<BinMix | undefined> => {
+    const formatted = formatSerialNumber(serial);
+    const rows = await fetchBinTracker();
+    for (let i = rows.length - 1; i > 0; i--) {
+      if (formatSerialNumber(rows[i][6] || '') === formatted) return mixForRow(binTrackerCp.current, i);
+    }
+    return undefined;
+  }, [fetchBinTracker]);
 
   const handleManualSearch = () => {
     if (manualSerial.trim()) {
@@ -725,6 +747,7 @@ export function ManagePage() {
             {showScanner && (
               <BinScanner
                 onScanSerial={handleScanSerial}
+                getMix={getScannedMix}
                 onClose={() => setShowScanner(false)}
                 onResultDone={() => setShowScanner(false)}
                 outcomeLabels={{ selected: 'Bin found!', not_found: 'Bin not found' }}

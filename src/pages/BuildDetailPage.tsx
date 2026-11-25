@@ -9,6 +9,8 @@ import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { BinScanner } from '@/components/BinScanner';
 import type { ScanOutcome } from '@/components/BinScanner';
+import { BinMixBadge } from '@/components/BinMixBadge';
+import { BIN_TRACKER_URL, readCpByRow, mixForRow, type BinMix } from '@/utils/binMix';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
 import { calcVolumeLitres, formatVolume } from '@/utils/volume';
@@ -31,6 +33,7 @@ interface AssignedBin {
   batchingDate: string;
   sources: string[];
   colour: string;
+  mix?: BinMix;
 }
 
 interface AvailableBin {
@@ -40,6 +43,7 @@ interface AvailableBin {
   serialNumber: string;
   colour: string;
   maturationDate: string;
+  mix?: BinMix;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -151,10 +155,11 @@ export function BuildDetailPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch('/.netlify/functions/compost-sheets-read?tab=Bin%20Tracker');
+      const res = await fetch(BIN_TRACKER_URL);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const rows: string[][] = json.data || [];
+      const cp = readCpByRow(json);
 
       const todayStr = getNZDate();
       const today = new Date(todayStr + 'T00:00:00');
@@ -184,6 +189,7 @@ export function BuildDetailPage() {
             batchingDate: (row[9] || '').trim(),
             sources,
             colour: rowColour,
+            mix: mixForRow(cp, arrayIndex),
           });
           if (rowColour && !detectedColour) detectedColour = rowColour;
           return;
@@ -200,6 +206,7 @@ export function BuildDetailPage() {
           serialNumber: (row[6] || '').trim(),
           colour: rowColour,
           maturationDate: (row[8] || '').trim(),
+          mix: mixForRow(cp, arrayIndex),
         });
       });
 
@@ -290,6 +297,11 @@ export function BuildDetailPage() {
     });
     return wasSelected ? 'deselected' : 'selected';
   }, [availableBins, addSelected]);
+
+  const getScannedMix = useCallback((serial: string): BinMix | undefined => {
+    const normalised = serial.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    return availableBins.find(b => b.serialNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase() === normalised)?.mix;
+  }, [availableBins]);
 
   async function handleAddBins() {
     if (!system || addSelected.size === 0 || addingBins) return;
@@ -1021,6 +1033,7 @@ export function BuildDetailPage() {
               <div className="p-3 border-b border-gray-100">
                 <BinScanner
                   onScanSerial={handleScanSerial}
+                  getMix={getScannedMix}
                   onClose={() => setScanMode(false)}
                 />
               </div>
@@ -1061,6 +1074,7 @@ export function BuildDetailPage() {
                               {bin.colour}
                             </span>
                           )}
+                          <BinMixBadge mix={bin.mix} variant="chip" />
                         </div>
                         <p className="text-sm text-gray-600 mt-0.5">
                           {bin.sources.length > 0
@@ -1116,6 +1130,7 @@ export function BuildDetailPage() {
                               {bin.colour}
                             </span>
                           )}
+                          <BinMixBadge mix={bin.mix} variant="chip" />
                         </div>
                         <p className="text-sm text-gray-600 mt-0.5">
                           {bin.sources.length > 0

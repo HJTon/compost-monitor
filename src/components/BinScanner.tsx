@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { RefreshCw, X, Loader2, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { recognizeSerialNumber, formatSerialNumber } from '@/services/ocrService';
+import { BinMixBadge } from '@/components/BinMixBadge';
+import type { BinMix } from '@/utils/binMix';
 
 export type ScanOutcome = 'selected' | 'deselected' | 'not_found' | 'no_text';
 
@@ -9,6 +11,7 @@ type ScanPhase = 'scanning' | 'processing' | 'result';
 interface ScanResult {
   outcome: ScanOutcome;
   serial: string;
+  mix?: BinMix;
 }
 
 interface BinScannerProps {
@@ -19,6 +22,8 @@ interface BinScannerProps {
   outcomeLabels?: Partial<Record<ScanOutcome, string>>;
   /** Called after the result overlay auto-dismisses (e.g. to auto-close scanner) */
   onResultDone?: () => void;
+  /** Bokashi mix of the scanned bin (All Zing / contains some CP), shown on the result. */
+  getMix?: (serial: string) => BinMix | undefined | Promise<BinMix | undefined>;
 }
 
 const OUTCOME_CONFIG: Record<ScanOutcome, { label: string; colour: string; icon: React.ReactNode }> = {
@@ -44,7 +49,7 @@ const OUTCOME_CONFIG: Record<ScanOutcome, { label: string; colour: string; icon:
   },
 };
 
-export function BinScanner({ onScanSerial, onClose, outcomeLabels, onResultDone }: BinScannerProps) {
+export function BinScanner({ onScanSerial, onClose, outcomeLabels, onResultDone, getMix }: BinScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -99,31 +104,38 @@ export function BinScanner({ onScanSerial, onClose, outcomeLabels, onResultDone 
 
     setPhase('processing');
 
+    let next: ScanResult;
     try {
       const ocr = await recognizeSerialNumber(imageData);
       const serial = formatSerialNumber(ocr.suggestedSerial);
 
       let outcome: ScanOutcome;
+      let mix: BinMix | undefined;
       if (!serial || serial.length < 3) {
         outcome = 'no_text';
       } else {
         outcome = onScanSerial(serial);
+        if (outcome !== 'not_found' && getMix) {
+          try { mix = await getMix(serial); } catch { mix = undefined; }
+        }
       }
 
-      setResult({ outcome, serial });
+      next = { outcome, serial, mix };
     } catch {
-      setResult({ outcome: 'no_text', serial: '' });
+      next = { outcome: 'no_text', serial: '' };
     }
 
+    setResult(next);
     setPhase('result');
 
-    // Return to scanning after 1.5 s — camera never stopped
+    // Return to scanning after 1.5 s (3.5 s when there's CP to read) — camera never stopped
+    const holdMs = next.mix && next.mix.cpSources.length > 0 ? 3500 : 1500;
     setTimeout(() => {
       setResult(null);
       setPhase('scanning');
       onResultDone?.();
-    }, 1500);
-  }, [phase, onScanSerial]);
+    }, holdMs);
+  }, [phase, onScanSerial, getMix, onResultDone]);
 
   const toggleCamera = useCallback(() => {
     stopCamera();
@@ -202,6 +214,7 @@ export function BinScanner({ onScanSerial, onClose, outcomeLabels, onResultDone 
                   </p>
                 )}
                 <p className={`text-sm font-medium ${cfg.colour}`}>{label}</p>
+                <BinMixBadge mix={result.mix} variant="dark" />
               </div>
             </div>
           );

@@ -5,6 +5,8 @@ import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { BinScanner } from '@/components/BinScanner';
 import type { ScanOutcome } from '@/components/BinScanner';
+import { BinMixBadge } from '@/components/BinMixBadge';
+import { BIN_TRACKER_URL, readCpByRow, mixForRow, type BinMix } from '@/utils/binMix';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
 import type { CompostSystem, BuildShape, BuildDimensions } from '@/types';
@@ -18,6 +20,7 @@ interface BinRow {
   serialNumber: string;
   colour: string;
   maturationDate: string;
+  mix?: BinMix; // all Zing / contains some chaffed pickle; undefined when unknown
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -124,10 +127,11 @@ export function BuildPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const res = await fetch('/.netlify/functions/compost-sheets-read?tab=Bin%20Tracker');
+        const res = await fetch(BIN_TRACKER_URL);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const rows: string[][] = json.data || [];
+        const cp = readCpByRow(json);
 
         const todayStr = getNZDate(); // YYYY-MM-DD
         const today = new Date(todayStr + 'T00:00:00');
@@ -158,6 +162,7 @@ export function BuildPage() {
             serialNumber: (row[6] || '').trim(),
             colour: rowColour,
             maturationDate: (row[8] || '').trim(),
+            mix: mixForRow(cp, arrayIndex),
           });
         });
 
@@ -215,6 +220,11 @@ export function BuildPage() {
     });
     return wasSelected ? 'deselected' : 'selected';
   }, [bins, selected]);
+
+  const getScannedMix = useCallback((serial: string): BinMix | undefined => {
+    const normalised = serial.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    return bins.find(b => b.serialNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase() === normalised)?.mix;
+  }, [bins]);
 
   async function handleCreate() {
     if (!buildName.trim() || selected.size === 0 || creating) return;
@@ -603,6 +613,7 @@ export function BuildPage() {
             <div className="p-3 border-b border-gray-100">
               <BinScanner
                 onScanSerial={handleScanSerial}
+                getMix={getScannedMix}
                 onClose={() => setScanMode(false)}
               />
             </div>
@@ -669,6 +680,7 @@ export function BuildPage() {
                             {bin.colour}
                           </span>
                         )}
+                        <BinMixBadge mix={bin.mix} variant="chip" />
                       </div>
                       <p className="text-sm text-gray-600 mt-0.5">
                         {bin.sources.length > 0
