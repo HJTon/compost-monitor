@@ -1,3 +1,4 @@
+import { sharedSheetId, farmSheetId, farmName, binFarmColumn, binIsAtFarm } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -72,13 +73,9 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
-    if (!spreadsheetId) {
-      return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    // Bin Tracker is in the shared sheet; the new build's own tab goes in the farm's sheet.
+    const spreadsheetId = sharedSheetId();
+    const farmSpreadsheetId = farmSheetId(request);
 
     const body: CreateBuildRequest = await request.json();
     const { buildName, probeCount, binRowIndices, height, buildDate, colour } = body;
@@ -105,9 +102,24 @@ export default async (request: Request, _context: Context) => {
     const sheets = getGoogleSheetsClient();
     const tabName = buildName.trim();
 
+    // ── 0. Only this farm's bins can go into this farm's build ──────────────
+    const tracker = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Bin Tracker'!A:O" });
+    const trackerRows = tracker.data.values ?? [];
+    const farmCol = binFarmColumn(trackerRows[0]);
+    const foreign = binRowIndices.filter(i => i < 1 || !trackerRows[i] || !binIsAtFarm(trackerRows[i], request, farmCol));
+    if (foreign.length) {
+      return new Response(JSON.stringify({ error: `${foreign.length} selected bin(s) are not at ${farmName(request)}` }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     // ── 1. Create the new monitoring sheet tab ──────────────────────────────
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-    const tabExists = spreadsheet.data.sheets?.some(
+    const farmSpreadsheet = farmSpreadsheetId === spreadsheetId
+      ? spreadsheet
+      : await sheets.spreadsheets.get({ spreadsheetId: farmSpreadsheetId });
+    const tabExists = farmSpreadsheet.data.sheets?.some(
       (s: any) => s.properties?.title === tabName,
     );
 
@@ -115,7 +127,7 @@ export default async (request: Request, _context: Context) => {
     if (!tabExists) {
       // Create the tab and capture the new sheet's ID for formatting
       const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
+        spreadsheetId: farmSpreadsheetId,
         requestBody: {
           requests: [{ addSheet: { properties: { title: tabName } } }],
         },
@@ -140,7 +152,7 @@ export default async (request: Request, _context: Context) => {
       ];
 
       await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
+        spreadsheetId: farmSpreadsheetId,
         requestBody: {
           valueInputOption: 'USER_ENTERED',
           data: [
@@ -194,7 +206,7 @@ export default async (request: Request, _context: Context) => {
         }
 
         await sheets.spreadsheets.batchUpdate({
-          spreadsheetId,
+          spreadsheetId: farmSpreadsheetId,
           requestBody: { requests: formatRequests },
         });
       }

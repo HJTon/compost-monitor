@@ -1,3 +1,4 @@
+import { sheetIdForTab, FARM_VARY_HEADERS } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -57,14 +58,6 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
-    if (!spreadsheetId) {
-      return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     const url = new URL(request.url);
     const tab = url.searchParams.get('tab');
     if (!tab) {
@@ -73,6 +66,9 @@ export default async (request: Request, _context: Context) => {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // Bin Tracker lives in the shared sheet; every other tab (and __tabs__) in the farm's own.
+    const spreadsheetId = sheetIdForTab(request, tab);
 
     const sheets = getGoogleSheetsClient();
 
@@ -111,6 +107,7 @@ export default async (request: Request, _context: Context) => {
         // CDN-only cache to absorb repeat reads (e.g. the Sampling Log read
         // fired on every Analyse/Compare load) without browsers caching.
         'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120',
+        ...FARM_VARY_HEADERS,
       },
     });
   } catch (error) {

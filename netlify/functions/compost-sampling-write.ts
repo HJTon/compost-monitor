@@ -1,3 +1,4 @@
+import { farmSheetId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -10,7 +11,6 @@ function getGoogleSheetsClient() {
   return google.sheets({ version: 'v4', auth });
 }
 
-const SPREADSHEET_ID = process.env.COMPOST_SPREADSHEET_ID || '1dY7TxghJegPDWUZF51QRmLhWUXVFBcdK5BYzOLsbNAo';
 const TAB_NAME = 'Sampling Log';
 
 interface SampleRow {
@@ -42,6 +42,7 @@ export default async (req: Request, _context: Context) => {
     }
 
     const sheets = getGoogleSheetsClient();
+    const SPREADSHEET_ID = farmSheetId(req);
 
     const values = rows.map(r => [
       r.date, r.sampleId, r.system, r.turn, r.height,

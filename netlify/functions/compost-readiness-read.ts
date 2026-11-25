@@ -1,3 +1,4 @@
+import { farmSheetId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -22,7 +23,7 @@ export default async (req: Request, _context: Context) => {
 
   try {
     const sheets = getGoogleSheetsClient();
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID!;
+    const spreadsheetId = farmSheetId(req);
 
     // Check if tab exists
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Hammer, CheckSquare, Square, Loader2, Package, ScanLine,
@@ -10,6 +10,8 @@ import { Button } from '@/components/Button';
 import { BinScanner } from '@/components/BinScanner';
 import type { ScanOutcome } from '@/components/BinScanner';
 import { BinMixBadge } from '@/components/BinMixBadge';
+import { FarmPicker } from '@/components/FarmPicker';
+import { farmOfRow, farmCounts, atFarm } from '@/utils/farm';
 import { BIN_TRACKER_URL, readCpByRow, mixForRow, type BinMix } from '@/utils/binMix';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
@@ -44,6 +46,7 @@ interface AvailableBin {
   colour: string;
   maturationDate: string;
   mix?: BinMix;
+  farm: string; // farm the bin was dropped at (Bin Tracker col O)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -88,7 +91,10 @@ export function BuildDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [assignedBins, setAssignedBins] = useState<AssignedBin[]>([]);
-  const [availableBins, setAvailableBins] = useState<AvailableBin[]>([]);
+  // Every matured, unassigned bin; `availableBins` is the ones at the farm this device is at.
+  const [allAvailableBins, setAvailableBins] = useState<AvailableBin[]>([]);
+  const availableBins = useMemo(() => atFarm(allAvailableBins, settings.currentFarm), [allAvailableBins, settings.currentFarm]);
+  const availableFarms = useMemo(() => farmCounts(allAvailableBins), [allAvailableBins]);
   const [currentColour, setCurrentColour] = useState<string>('');
   const [usedColours, setUsedColours] = useState<Set<string>>(new Set());
 
@@ -207,6 +213,7 @@ export function BuildDetailPage() {
           colour: rowColour,
           maturationDate: (row[8] || '').trim(),
           mix: mixForRow(cp, arrayIndex),
+          farm: farmOfRow(row),
         });
       });
 
@@ -297,6 +304,15 @@ export function BuildDetailPage() {
     });
     return wasSelected ? 'deselected' : 'selected';
   }, [availableBins, addSelected]);
+
+  // Switching farm drops any picked bins that aren't at the new one.
+  useEffect(() => {
+    const visible = new Set(availableBins.map(b => b.arrayIndex));
+    setAddSelected(prev => {
+      const next = new Set([...prev].filter(i => visible.has(i)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [availableBins]);
 
   const getScannedMix = useCallback((serial: string): BinMix | undefined => {
     const normalised = serial.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -1029,6 +1045,15 @@ export function BuildDetailPage() {
               )}
             </div>
 
+            {allAvailableBins.length > 0 && (
+              <FarmPicker
+                farms={availableFarms}
+                total={allAvailableBins.length}
+                value={settings.currentFarm}
+                onChange={farm => { void updateSettings({ currentFarm: farm }); }}
+              />
+            )}
+
             {scanMode && availableBins.length > 0 && (
               <div className="p-3 border-b border-gray-100">
                 <BinScanner
@@ -1042,7 +1067,9 @@ export function BuildDetailPage() {
             {availableBins.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-gray-400 gap-2">
                 <Package size={32} className="opacity-40" />
-                <p className="text-sm">No matured bins available</p>
+                <p className="text-sm">
+                  {allAvailableBins.length > 0 ? `No matured bins at ${settings.currentFarm}` : 'No matured bins available'}
+                </p>
               </div>
             ) : (
               <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">

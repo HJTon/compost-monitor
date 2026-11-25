@@ -1,3 +1,4 @@
+import { sharedSheetId, farmSheetId, binFarmColumn, binIsAtFarm } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -30,13 +31,9 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
-    if (!spreadsheetId) {
-      return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    // Bin Tracker is in the shared sheet; the build's own tab is in the farm's sheet.
+    const spreadsheetId = sharedSheetId();
+    const farmSpreadsheetId = farmSheetId(request);
 
     const { buildName } = await request.json();
     if (!buildName?.trim()) {
@@ -51,26 +48,30 @@ export default async (request: Request, _context: Context) => {
 
     // Get spreadsheet metadata (sheet IDs)
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const farmSpreadsheet = farmSpreadsheetId === spreadsheetId
+      ? spreadsheet
+      : await sheets.spreadsheets.get({ spreadsheetId: farmSpreadsheetId });
 
     const binTrackerSheetId = spreadsheet.data.sheets?.find(
       (s: any) => s.properties?.title === 'Bin Tracker',
     )?.properties?.sheetId ?? null;
 
-    const buildSheetId = spreadsheet.data.sheets?.find(
+    const buildSheetId = farmSpreadsheet.data.sheets?.find(
       (s: any) => s.properties?.title === tabName,
     )?.properties?.sheetId ?? null;
 
-    // Find Bin Tracker rows where col K = tabName
-    const colIResponse = await sheets.spreadsheets.values.get({
+    // Find this farm's Bin Tracker rows where col K = tabName
+    const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Bin Tracker'!K:K",
+      range: "'Bin Tracker'!A:O",
     });
-    const colIValues = colIResponse.data.values ?? [];
+    const trackerRows = trackerResponse.data.values ?? [];
+    const farmCol = binFarmColumn(trackerRows[0]);
 
     // 0-based row indices (row 0 = header); skip header
     const affectedIndices: number[] = [];
-    for (let i = 1; i < colIValues.length; i++) {
-      if (colIValues[i]?.[0] === tabName) {
+    for (let i = 1; i < trackerRows.length; i++) {
+      if (trackerRows[i]?.[10] === tabName && binIsAtFarm(trackerRows[i], request, farmCol)) {
         affectedIndices.push(i);
       }
     }
@@ -130,7 +131,7 @@ export default async (request: Request, _context: Context) => {
     let tabDeleted = false;
     if (buildSheetId != null) {
       await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
+        spreadsheetId: farmSpreadsheetId,
         requestBody: { requests: [{ deleteSheet: { sheetId: buildSheetId } }] },
       });
       tabDeleted = true;

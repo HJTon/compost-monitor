@@ -339,6 +339,11 @@ export interface AppSettings {
   customTrialMethods?: string[];
   /** User-defined grow-trial crops (added to the defaults) */
   customTrialCrops?: string[];
+  /**
+   * The farm this device is at (a Bin Tracker col O value, e.g. "Kahu Glen"). Let's Build and a
+   * build's Add bins list only show bins dropped there. Absent/empty = all farms.
+   */
+  currentFarm?: string;
 }
 
 export interface ContaminationRecord {

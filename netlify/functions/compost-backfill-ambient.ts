@@ -1,3 +1,4 @@
+import { farmSheetId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -77,7 +78,7 @@ export default async (req: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
+    const spreadsheetId = farmSheetId(req);
     if (!spreadsheetId) {
       return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), { status: 500 });
     }

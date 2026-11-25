@@ -1,3 +1,4 @@
+import { sharedSheetId, binFarmColumn, binIsAtFarm, FARM_VARY_HEADERS } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -140,7 +141,8 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
+    // Bin Tracker is shared by every farm; only this farm's bins count.
+    const spreadsheetId = sharedSheetId();
     if (!spreadsheetId) {
       return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), {
         status: 500,
@@ -165,6 +167,7 @@ export default async (request: Request, _context: Context) => {
 
     const rows = response.data.values || [];
     const cols = resolveColumns(rows[0] || []);
+    const farmCol = binFarmColumn(rows[0]);
     const dataRows = rows.slice(1); // skip header
 
     // Accumulate weighted source contributions for this system
@@ -177,6 +180,7 @@ export default async (request: Request, _context: Context) => {
     for (const row of dataRows) {
       const rowSystem = (row[cols.buildName] || '').toString().trim();
       if (rowSystem.toLowerCase() !== systemName.trim().toLowerCase()) continue;
+      if (!binIsAtFarm(row, request, farmCol)) continue;
 
       // Preferred: the per-source breakdown the collector app writes, which
       // knows how many bins/buckets each business contributed and how full
@@ -254,6 +258,7 @@ export default async (request: Request, _context: Context) => {
         'Access-Control-Allow-Origin': '*',
         // Bin Tracker contents change rarely — cache at the edge for 5 min.
         'Netlify-CDN-Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        ...FARM_VARY_HEADERS,
       },
     });
 

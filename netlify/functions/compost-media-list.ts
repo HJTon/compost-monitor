@@ -1,3 +1,4 @@
+import { farmDriveFolderId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -38,7 +39,7 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const parentFolderId = process.env.COMPOST_DRIVE_FOLDER_ID;
+    const parentFolderId = farmDriveFolderId(request);
     if (!parentFolderId) {
       return new Response(JSON.stringify({ error: 'Drive folder ID not configured' }), {
         status: 500,

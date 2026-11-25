@@ -1,3 +1,4 @@
+import { sharedSheetId, farmSheetId, binFarmColumn, binIsAtFarm } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -49,13 +50,9 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
-    if (!spreadsheetId) {
-      return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    // Bin Tracker is in the shared sheet; Build Info is in the farm's own sheet.
+    const spreadsheetId = sharedSheetId();
+    const farmSpreadsheetId = farmSheetId(request);
 
     const { buildName, buildDate } = await request.json();
     if (!buildName?.trim()) {
@@ -76,17 +73,18 @@ export default async (request: Request, _context: Context) => {
     const isoDate = String(buildDate).trim();
     const trackerDate = formatNZDate(isoDate);
 
-    // ── 1. Find Bin Tracker rows where col K = build name ───────────────────
-    const colKResponse = await sheets.spreadsheets.values.get({
+    // ── 1. Find this farm's Bin Tracker rows where col K = build name ───────
+    const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Bin Tracker'!K:K",
+      range: "'Bin Tracker'!A:O",
     });
-    const colKValues = colKResponse.data.values ?? [];
+    const trackerRows = trackerResponse.data.values ?? [];
+    const farmCol = binFarmColumn(trackerRows[0]);
 
     // 0-based row indices (row 0 = header); skip header
     const affectedIndices: number[] = [];
-    for (let i = 1; i < colKValues.length; i++) {
-      if (colKValues[i]?.[0] === tabName) {
+    for (let i = 1; i < trackerRows.length; i++) {
+      if (trackerRows[i]?.[10] === tabName && binIsAtFarm(trackerRows[i], request, farmCol)) {
         affectedIndices.push(i);
       }
     }
@@ -111,7 +109,7 @@ export default async (request: Request, _context: Context) => {
     let buildInfoUpdated = false;
     try {
       const infoResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId,
+        spreadsheetId: farmSpreadsheetId,
         range: `'${BUILD_INFO_TAB}'!A:J`,
       });
       const infoValues = (infoResponse.data.values as string[][]) ?? [];
@@ -122,7 +120,7 @@ export default async (request: Request, _context: Context) => {
 
       if (infoRowIndex >= 0) {
         await sheets.spreadsheets.values.update({
-          spreadsheetId,
+          spreadsheetId: farmSpreadsheetId,
           range: `'${BUILD_INFO_TAB}'!I${infoRowIndex + 1}:J${infoRowIndex + 1}`,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [[new Date().toISOString(), isoDate]] },
@@ -131,7 +129,7 @@ export default async (request: Request, _context: Context) => {
       } else if (infoValues.length > 0) {
         // Tab exists (with headers) but this build has no row yet — append one.
         await sheets.spreadsheets.values.append({
-          spreadsheetId,
+          spreadsheetId: farmSpreadsheetId,
           range: `'${BUILD_INFO_TAB}'!A:J`,
           valueInputOption: 'USER_ENTERED',
           insertDataOption: 'INSERT_ROWS',

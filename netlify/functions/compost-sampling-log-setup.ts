@@ -1,3 +1,4 @@
+import { farmSheetId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -10,7 +11,6 @@ function getGoogleSheetsClient() {
   return google.sheets({ version: 'v4', auth });
 }
 
-const SPREADSHEET_ID = process.env.COMPOST_SPREADSHEET_ID || '1dY7TxghJegPDWUZF51QRmLhWUXVFBcdK5BYzOLsbNAo';
 const TAB_NAME = 'Sampling Log';
 
 const HEADERS = [
@@ -321,6 +321,7 @@ export default async (req: Request, _context: Context) => {
 
   try {
     const sheets = getGoogleSheetsClient();
+    const SPREADSHEET_ID = farmSheetId(req);
 
     // Check if tab already exists
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });

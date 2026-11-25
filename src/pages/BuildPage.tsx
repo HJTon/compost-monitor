@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Hammer, CheckSquare, Square, AlertCircle, Loader2, Package, ScanLine } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -6,6 +6,8 @@ import { Button } from '@/components/Button';
 import { BinScanner } from '@/components/BinScanner';
 import type { ScanOutcome } from '@/components/BinScanner';
 import { BinMixBadge } from '@/components/BinMixBadge';
+import { FarmPicker } from '@/components/FarmPicker';
+import { farmOfRow, farmCounts, atFarm } from '@/utils/farm';
 import { BIN_TRACKER_URL, readCpByRow, mixForRow, type BinMix } from '@/utils/binMix';
 import { useCompost } from '@/contexts/CompostContext';
 import { getNZDate, DEFAULT_MULCH_TYPES } from '@/utils/config';
@@ -21,6 +23,7 @@ interface BinRow {
   colour: string;
   maturationDate: string;
   mix?: BinMix; // all Zing / contains some chaffed pickle; undefined when unknown
+  farm: string; // farm the bin was dropped at (Bin Tracker col O)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -87,7 +90,10 @@ export function BuildPage() {
   const navigate = useNavigate();
   const { addCustomSystem, addToast, settings, updateSettings, buildTypes, addBuildType } = useCompost();
 
-  const [bins, setBins] = useState<BinRow[]>([]);
+  // Every matured, unassigned bin; `bins` is the ones at the farm this device is at.
+  const [allBins, setAllBins] = useState<BinRow[]>([]);
+  const bins = useMemo(() => atFarm(allBins, settings.currentFarm), [allBins, settings.currentFarm]);
+  const farms = useMemo(() => farmCounts(allBins), [allBins]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -163,11 +169,12 @@ export function BuildPage() {
             colour: rowColour,
             maturationDate: (row[8] || '').trim(),
             mix: mixForRow(cp, arrayIndex),
+            farm: farmOfRow(row),
           });
         });
 
         setUsedColours(taken);
-        setBins(available);
+        setAllBins(available);
       } catch (err) {
         setLoadError('Could not load bins. Check your connection and try again.');
         console.error('Bin Tracker load error:', err);
@@ -204,13 +211,26 @@ export function BuildPage() {
     }
   }
 
+  // Switching farm drops any selected bins that aren't at the new one, so a build never mixes farms.
+  useEffect(() => {
+    const visible = new Set(bins.map(b => b.arrayIndex));
+    setSelected(prev => {
+      const next = new Set([...prev].filter(i => visible.has(i)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [bins]);
+
   // Called by BinScanner after OCR reads a serial — find the bin and toggle it
   const handleScanSerial = useCallback((serial: string): Exclude<ScanOutcome, 'no_text'> => {
     const normalised = serial.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const bin = bins.find(
       b => b.serialNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase() === normalised
     );
-    if (!bin) return 'not_found';
+    if (!bin) {
+      const elsewhere = allBins.find(b => b.serialNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase() === normalised);
+      if (elsewhere) addToast('info', `#${elsewhere.serialNumber} is at ${elsewhere.farm}, not ${settings.currentFarm}`);
+      return 'not_found';
+    }
     const wasSelected = selected.has(bin.arrayIndex);
     setSelected(prev => {
       const next = new Set(prev);
@@ -219,7 +239,7 @@ export function BuildPage() {
       return next;
     });
     return wasSelected ? 'deselected' : 'selected';
-  }, [bins, selected]);
+  }, [bins, allBins, selected, addToast, settings.currentFarm]);
 
   const getScannedMix = useCallback((serial: string): BinMix | undefined => {
     const normalised = serial.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -608,6 +628,15 @@ export function BuildPage() {
             )}
           </div>
 
+          {!loading && !loadError && allBins.length > 0 && (
+            <FarmPicker
+              farms={farms}
+              total={allBins.length}
+              value={settings.currentFarm}
+              onChange={farm => { void updateSettings({ currentFarm: farm }); }}
+            />
+          )}
+
           {/* ── Scanner ──────────────────────────────────────────────────── */}
           {scanMode && !loading && !loadError && bins.length > 0 && (
             <div className="p-3 border-b border-gray-100">
@@ -644,8 +673,12 @@ export function BuildPage() {
           {!loading && !loadError && bins.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
               <Package size={36} className="opacity-40" />
-              <p className="text-sm">No matured bins available</p>
-              <p className="text-xs">All bins are either assigned or still maturing</p>
+              <p className="text-sm">
+                {allBins.length > 0 ? `No matured bins at ${settings.currentFarm}` : 'No matured bins available'}
+              </p>
+              <p className="text-xs">
+                {allBins.length > 0 ? 'Pick another farm above to see its bins' : 'All bins are either assigned or still maturing'}
+              </p>
             </div>
           )}
 

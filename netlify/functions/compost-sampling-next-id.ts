@@ -1,3 +1,4 @@
+import { farmSheetId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -10,7 +11,6 @@ function getGoogleSheetsClient() {
   return google.sheets({ version: 'v4', auth });
 }
 
-const SPREADSHEET_ID = process.env.COMPOST_SPREADSHEET_ID || '1dY7TxghJegPDWUZF51QRmLhWUXVFBcdK5BYzOLsbNAo';
 const TAB_NAME = 'Sampling Log';
 
 export default async (req: Request, _context: Context) => {
@@ -20,6 +20,7 @@ export default async (req: Request, _context: Context) => {
 
   try {
     const sheets = getGoogleSheetsClient();
+    const SPREADSHEET_ID = farmSheetId(req);
 
     // Read just the Sample ID column (B)
     const res = await sheets.spreadsheets.values.get({

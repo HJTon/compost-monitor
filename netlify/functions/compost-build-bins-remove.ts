@@ -1,3 +1,4 @@
+import { sharedSheetId, binFarmColumn, binIsAtFarm } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -38,13 +39,8 @@ export default async (request: Request, _context: Context) => {
   }
 
   try {
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID;
-    if (!spreadsheetId) {
-      return new Response(JSON.stringify({ error: 'Spreadsheet ID not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    // Only touches the Bin Tracker, which is in the shared sheet.
+    const spreadsheetId = sharedSheetId();
 
     const { buildName, binSerials } = await request.json() as {
       buildName?: string;
@@ -70,9 +66,10 @@ export default async (request: Request, _context: Context) => {
     // Fetch cols G (serial) and K (batch) so we can locate the exact rows
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Bin Tracker'!A:K",
+      range: "'Bin Tracker'!A:O",
     });
     const rows = res.data.values ?? [];
+    const farmCol = binFarmColumn(rows[0]);
 
     // 0-based row indices (row 0 = header); skip header
     const affectedIndices: number[] = [];
@@ -80,7 +77,7 @@ export default async (request: Request, _context: Context) => {
       const row = rows[i] || [];
       const serial = (row[6] || '').toString().trim();
       const batch = (row[10] || '').toString().trim();
-      if (batch === tabName && serialSet.has(serial)) {
+      if (batch === tabName && serialSet.has(serial) && binIsAtFarm(row, request, farmCol)) {
         affectedIndices.push(i);
       }
     }

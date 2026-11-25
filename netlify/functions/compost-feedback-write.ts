@@ -3,8 +3,8 @@ import { google } from 'googleapis';
 
 // Public event / tour feedback (the /feedback page).
 // Answers go to the "Event Feedback" tab; contact details go to a separate
-// "Feedback Contacts" tab keyed by the same ID, so the answers tab can be shared or
-// reported on without exposing anyone's name or email.
+// "Feedback Contacts" tab keyed by the same ID and on the same row number, so the answers
+// tab can be shared or reported on without exposing anyone's name or email.
 //
 // FEEDBACK_SPREADSHEET_ID (optional) sends both tabs to a separate spreadsheet;
 // without it they land in the compost spreadsheet.
@@ -80,7 +80,7 @@ export default async (req: Request, _context: Context) => {
     const eventTitle = str(b.eventTitle, 200);
     const wantsContact = b.wantsContact === true;
 
-    await sheets.spreadsheets.values.append({
+    const appended = await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: `'${ANSWERS_TAB}'!A:A`,
       valueInputOption: 'RAW',
@@ -95,12 +95,15 @@ export default async (req: Request, _context: Context) => {
       },
     });
 
-    if (wantsContact && (str(b.contactEmail) || str(b.contactName))) {
-      await sheets.spreadsheets.values.append({
+    // Contacts sit on the SAME row number as the answer they belong to, so row N on both
+    // tabs is the same person. People who don't want contact leave their row blank here,
+    // which is why this writes to an explicit row instead of appending.
+    const answerRow = Number(/![A-Z]+(\d+)/.exec(appended.data.updates?.updatedRange ?? '')?.[1]);
+    if (wantsContact && (str(b.contactEmail) || str(b.contactName)) && answerRow > 1) {
+      await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'${CONTACTS_TAB}'!A:A`,
+        range: `'${CONTACTS_TAB}'!A${answerRow}:G${answerRow}`,
         valueInputOption: 'RAW',
-        insertDataOption: 'INSERT_ROWS',
         requestBody: {
           values: [[
             id, submittedAt, eventTitle, str(b.contactName, 200), str(b.contactEmail, 200),

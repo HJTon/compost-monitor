@@ -1,3 +1,4 @@
+import { farmSheetId } from './_lib/farms';
 import type { Context } from '@netlify/functions';
 import { google } from 'googleapis';
 
@@ -42,7 +43,7 @@ export default async (req: Request, _context: Context) => {
     }
 
     const sheets = getGoogleSheetsClient();
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID!;
+    const spreadsheetId = farmSheetId(req);
 
     // Ensure the tab exists
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
@@ -125,7 +126,7 @@ async function handleDelete(req: Request) {
     if (!id) return new Response(JSON.stringify({ error: 'missing id' }), { status: 400 });
 
     const sheets = getGoogleSheetsClient();
-    const spreadsheetId = process.env.COMPOST_SPREADSHEET_ID!;
+    const spreadsheetId = farmSheetId(req);
 
     const meta = await sheets.spreadsheets.get({ spreadsheetId });
     const tab = meta.data.sheets?.find(s => s.properties?.title === TAB_NAME);
