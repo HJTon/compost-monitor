@@ -6,7 +6,10 @@ interface BinMixBadgeProps {
   variant?: 'dark' | 'light' | 'chip';
 }
 
-/** "All Zing" or "Contains some CP — from …". Renders nothing when the mix is unknown. */
+/**
+ * "All Zing" or "Contains some CP — from …". Renders nothing when the mix is unknown.
+ * All Zing is purple, not green: Zing is the usual mix, not the "good" one, and CP isn't a fault.
+ */
 export function BinMixBadge({ mix, variant = 'light' }: BinMixBadgeProps) {
   if (!mix) return null;
   const cp = mix.cpSources.length > 0;
@@ -30,7 +33,7 @@ export function BinMixBadge({ mix, variant = 'light' }: BinMixBadgeProps) {
         <p className="text-xs">from {mix.cpSources.join(', ')}</p>
       </div>
     ) : (
-      <p className="mt-2 inline-block rounded-lg bg-green-600/80 px-3 py-1 text-sm font-semibold text-white">All Zing</p>
+      <p className="mt-2 inline-block rounded-lg bg-purple-600/90 px-3 py-1 text-sm font-semibold text-white">All Zing</p>
     );
   }
 
@@ -40,7 +43,7 @@ export function BinMixBadge({ mix, variant = 'light' }: BinMixBadgeProps) {
       <span className="text-yellow-800"> — chaffed pickle from {mix.cpSources.join(', ')}</span>
     </div>
   ) : (
-    <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm font-medium text-green-800">
+    <div className="rounded-lg bg-purple-50 border border-purple-200 px-3 py-2 text-sm font-medium text-purple-800">
       All Zing
     </div>
   );
